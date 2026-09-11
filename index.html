@@ -750,6 +750,20 @@ function parcelaVencimentoEstimado(pedido, n){
   d.setMonth(d.getMonth() + n);
   return d;
 }
+// Data da próxima parcela ainda não paga de um pedido (a mais próxima entre todos
+// os itens) — usada na tela de Pedidos para a coluna "Próximo pagamento" e para
+// agrupar os pedidos em pastas por mês. Pedido quitado retorna null.
+function proximoPagamentoPedido(pedido){
+  let proximo = null;
+  (pedido.itens||[]).forEach(it=>{
+    (it.parcelas||[]).forEach(parc=>{
+      if(parc.data_pgto) return;
+      const venc = parcelaVencimentoEstimado(pedido, parc.n);
+      if(venc && (!proximo || venc < proximo)) proximo = venc;
+    });
+  });
+  return proximo;
+}
 function listaContasAReceber(){
   const hoje = new Date(); hoje.setHours(0,0,0,0);
   const linhas = [];
@@ -1424,9 +1438,28 @@ function openProdutoModal(existing){
 }
 
 /* ================= PEDIDO ================= */
-const pedidoUI = { buscaNumero:'', novoItens: [], listaFiltro:'', listaPage:1, sortKey:null, sortDir:'desc', prefillCliente:null, prefillForma:null, prefillCondicao:null };
-const PED_LISTA_NUMERIC_KEYS = new Set(['numero','total']);
+const pedidoUI = {
+  buscaNumero:'', novoItens: [], listaFiltro:'', listaPage:1, sortKey:null, sortDir:'desc',
+  prefillCliente:null, prefillForma:null, prefillCondicao:null,
+  // Pasta por mês do "próximo pagamento": filtroMes null = todos os meses do ano selecionado.
+  filtroMes: null, filtroAno: new Date().getFullYear(),
+};
+const PED_LISTA_NUMERIC_KEYS = new Set(['numero','total','proximo']);
 const PED_LISTA_PAGESIZE = 20;
+const MESES_LABEL = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+// Conta, para o ano informado, quantos pedidos têm o "próximo pagamento" em cada mês
+// (chave 1-12) — alimenta os contadores das pastas de mês na tela de Pedidos.
+function contarPedidosPorMes(ano){
+  const counts = {};
+  S.pedidos.forEach(p=>{
+    const prox = proximoPagamentoPedido(p);
+    if(prox && prox.getFullYear()===ano){
+      const m = prox.getMonth()+1;
+      counts[m] = (counts[m]||0)+1;
+    }
+  });
+  return counts;
+}
 
 // Abre a ficha de um pedido em outra aba do navegador (mesma página, com a rota
 // #/pedido/<numero> no hash, que a inicialização do app sabe carregar direto).
@@ -1482,6 +1515,11 @@ function renderPedidosLista(el){
       </div>
     </div>
 
+    <div class="card" style="margin-bottom:20px;">
+      <div class="card-head"><h2>Pastas por mês &middot; próximo pagamento</h2></div>
+      <div class="card-body" id="ped-folder-nav"></div>
+    </div>
+
     <div class="card">
       <div class="card-head"><h2>Todos os pedidos</h2></div>
       <div class="card-body">
@@ -1490,6 +1528,37 @@ function renderPedidosLista(el){
       </div>
     </div>
   `;
+
+  function renderFolderNav(){
+    const wrap = document.getElementById('ped-folder-nav');
+    if(!wrap) return;
+    const counts = contarPedidosPorMes(pedidoUI.filtroAno);
+    const totalAno = Object.values(counts).reduce((s,n)=>s+n,0);
+    wrap.innerHTML = `
+      <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px;">
+        <button class="iconbtn" id="ped-ano-prev" title="Ano anterior">${ICONS.back}</button>
+        <strong style="min-width:52px; text-align:center; font-size:15px;">${pedidoUI.filtroAno}</strong>
+        <button class="iconbtn" id="ped-ano-next" title="Próximo ano" style="transform:scaleX(-1);">${ICONS.back}</button>
+      </div>
+      <div style="display:flex; flex-wrap:wrap; gap:8px;">
+        <button class="btn ${pedidoUI.filtroMes===null?'primary':''}" data-mes="">Todos <span style="opacity:.75;">(${totalAno})</span></button>
+        ${MESES_LABEL.map((m,i)=>{
+          const mes = i+1;
+          return `<button class="btn ${pedidoUI.filtroMes===mes?'primary':''}" data-mes="${mes}">${m} <span style="opacity:.75;">(${counts[mes]||0})</span></button>`;
+        }).join('')}
+      </div>
+    `;
+    wrap.querySelector('#ped-ano-prev').onclick = ()=>{ pedidoUI.filtroAno--; pedidoUI.listaPage=1; renderFolderNav(); renderListaPedidosBody(); };
+    wrap.querySelector('#ped-ano-next').onclick = ()=>{ pedidoUI.filtroAno++; pedidoUI.listaPage=1; renderFolderNav(); renderListaPedidosBody(); };
+    wrap.querySelectorAll('[data-mes]').forEach(btn=>{
+      btn.onclick = ()=>{
+        pedidoUI.filtroMes = btn.dataset.mes ? parseInt(btn.dataset.mes,10) : null;
+        pedidoUI.listaPage = 1;
+        renderFolderNav();
+        renderListaPedidosBody();
+      };
+    });
+  }
 
   document.getElementById('ped-buscar-btn').onclick = doBuscarPedido;
   document.getElementById('ped-busca').addEventListener('keydown', e=>{ if(e.key==='Enter') doBuscarPedido(); });
@@ -1521,22 +1590,30 @@ function renderPedidosLista(el){
         return String(p.numero).toLowerCase().includes(filtro) || nome.includes(filtro);
       });
     }
-    // enriquece cada pedido com os dados calculados (total, status, nome do cliente)
-    // antes de ordenar, já que essas colunas não existem prontas no documento.
+    // enriquece cada pedido com os dados calculados (total, status, nome do cliente,
+    // próximo pagamento) antes de ordenar, já que essas colunas não existem prontas
+    // no documento.
     let enriched = list.map(p=>{
       const totalGeral = (p.itens||[]).reduce((s,it)=> s + (it.valor_venda||0)*(it.uni||1), 0);
       const totalRecebido = (p.itens||[]).reduce((s,it)=> s + (it.parcelas||[]).reduce((s2,pp)=>s2+(pp.recebimento||0),0), 0);
       const quitado = totalRecebido >= totalGeral - 0.005;
       const cliente = S.clientes.get(p.codigo_cliente);
       const clienteNome = p.cliente_nome || (cliente?cliente.nome:'') || '';
-      return { p, totalGeral, quitado, clienteNome };
+      const proximoPagamento = proximoPagamentoPedido(p);
+      return { p, totalGeral, quitado, clienteNome, proximoPagamento };
     });
+    // Pasta por mês: mantém só os pedidos cujo próximo pagamento cai no mês/ano
+    // selecionado na navegação acima (filtroMes null = todos os meses do ano).
+    if(pedidoUI.filtroMes){
+      enriched = enriched.filter(row=> row.proximoPagamento && row.proximoPagamento.getFullYear()===pedidoUI.filtroAno && (row.proximoPagamento.getMonth()+1)===pedidoUI.filtroMes);
+    }
     enriched = sortRows(enriched, pedidoUI, (row,key)=>{
       if(key==='numero') return row.p.numero;
       if(key==='cliente') return row.clienteNome;
       if(key==='data') return row.p.data_compra;
       if(key==='total') return row.totalGeral;
       if(key==='status') return row.quitado ? 'Quitado' : 'Em aberto';
+      if(key==='proximo') return row.proximoPagamento ? row.proximoPagamento.getTime() : Infinity;
       return '';
     }, PED_LISTA_NUMERIC_KEYS, (a,b)=> (Number(b.p.numero)||0)-(Number(a.p.numero)||0));
     const total = enriched.length;
@@ -1548,16 +1625,21 @@ function renderPedidosLista(el){
     wrapInner.innerHTML = `
       <div class="table-wrap">
         <table class="data">
-          <thead><tr>${thSort('Nº','numero',pedidoUI,PED_LISTA_NUMERIC_KEYS)}${thSort('Cliente','cliente',pedidoUI,PED_LISTA_NUMERIC_KEYS)}${thSort('Data','data',pedidoUI,PED_LISTA_NUMERIC_KEYS)}${thSort('Total','total',pedidoUI,PED_LISTA_NUMERIC_KEYS,'num')}${thSort('Status','status',pedidoUI,PED_LISTA_NUMERIC_KEYS)}<th></th></tr></thead>
+          <thead><tr>${thSort('Nº','numero',pedidoUI,PED_LISTA_NUMERIC_KEYS)}${thSort('Cliente','cliente',pedidoUI,PED_LISTA_NUMERIC_KEYS)}${thSort('Data','data',pedidoUI,PED_LISTA_NUMERIC_KEYS)}${thSort('Total','total',pedidoUI,PED_LISTA_NUMERIC_KEYS,'num')}${thSort('Próximo pagamento','proximo',pedidoUI,PED_LISTA_NUMERIC_KEYS)}${thSort('Status','status',pedidoUI,PED_LISTA_NUMERIC_KEYS)}<th></th></tr></thead>
           <tbody>
-            ${pageItems.length ? pageItems.map(({p,totalGeral,quitado,clienteNome})=> `<tr class="pedrow" data-numero="${esc(p.numero)}" title="Abrir ficha do pedido">
+            ${pageItems.length ? pageItems.map(({p,totalGeral,quitado,clienteNome,proximoPagamento})=>{
+              const hoje = new Date(); hoje.setHours(0,0,0,0);
+              const vencido = proximoPagamento && proximoPagamento < hoje;
+              return `<tr class="pedrow" data-numero="${esc(p.numero)}" title="Abrir ficha do pedido">
                 <td>${esc(p.numero)}</td>
                 <td>${esc(clienteNome||'—')}</td>
                 <td>${fmtDate(p.data_compra)}</td>
                 <td class="num">${fmtBRL(totalGeral)}</td>
+                <td>${proximoPagamento ? `<span class="badge ${vencido?'alert':'pending'}">${fmtDate(proximoPagamento)}</span>` : '—'}</td>
                 <td><span class="badge ${quitado?'ok':'pending'}">${quitado?'Quitado':'Em aberto'}</span></td>
                 <td style="text-align:right; color:var(--muted);">${ICONS.external}</td>
-              </tr>`).join('') : `<tr><td colspan="6"><div class="empty">${ICONS.file}<div>Nenhum pedido encontrado.</div></div></td></tr>`}
+              </tr>`;
+            }).join('') : `<tr><td colspan="7"><div class="empty">${ICONS.file}<div>Nenhum pedido encontrado ${pedidoUI.filtroMes?('em '+MESES_LABEL[pedidoUI.filtroMes-1]+'/'+pedidoUI.filtroAno):''}.</div></div></td></tr>`}
           </tbody>
         </table>
       </div>
@@ -1575,6 +1657,7 @@ function renderPedidosLista(el){
     const prevBtn = document.getElementById('ped-lista-prev'); if(prevBtn) prevBtn.onclick = ()=>{ pedidoUI.listaPage--; renderListaPedidosBody(); };
     const nextBtn = document.getElementById('ped-lista-next'); if(nextBtn) nextBtn.onclick = ()=>{ pedidoUI.listaPage++; renderListaPedidosBody(); };
   }
+  renderFolderNav();
   renderListaPedidosBody();
 
   // Chegando via #/pedido/<numero> (ex: clicado na tabela acima, ou em "Duplicar
