@@ -2037,13 +2037,17 @@ function renderFichaHTML(pedido){
                 // saldo corrido do item inteiro) — decide se ainda cabe registrar pagamento
                 // nela, mesmo que já tenha recebido um valor parcial antes.
                 const remanescente = Math.max(0, (it.valor_parcela||0) - (p.recebimento||0));
+                const pagamentos = pagamentosDaParcela(p);
                 return `<tr>
                   <td>${pIdx===0?esc(it.descricao):''}</td>
                   <td>${pIdx===0?esc(it.uni):''}</td>
                   <td>${p.n}/${it.parcelas_qtd}</td>
                   <td class="num">${fmtBRL(it.valor_parcela)}</td>
                   <td>${p.data_pgto? fmtDate(p.data_pgto) : '<span class="badge pending">pendente</span>'}</td>
-                  <td class="num">${fmtBRL(p.recebimento)}</td>
+                  <td class="num">
+                    ${fmtBRL(p.recebimento)}
+                    ${pagamentos.length>1 ? `<div style="font-size:11px; color:var(--muted); font-weight:400;">${pagamentos.map(pg=>`${fmtBRL(pg.valor)}${pg.data?(' &middot; '+fmtDate(pg.data)):''}`).join('<br>')}</div>` : ''}
+                  </td>
                   <td class="num">${fmtBRL(Math.max(saldo,0))}</td>
                   <td>${remanescente>0.005 ? `<button class="btn ghost fp-pagar" data-item="${itIdx}" data-parc="${pIdx}" style="font-size:12px;">${(p.recebimento||0)>0?('+ Novo pagamento'):'Registrar pgto.'}</button>` : ''}</td>
                 </tr>`;
@@ -2107,7 +2111,15 @@ async function excluirFicha(pedido, container){
   }
 }
 
-function blankParcela(n){ return { n, data_pgto:null, recebimento:0, recibo:'' }; }
+function blankParcela(n){ return { n, data_pgto:null, recebimento:0, recibo:'', pagamentos:[] }; }
+// Lê a lista de pagamentos individuais de uma parcela — parcelas registradas antes
+// desse recurso existir só tinham um recebimento/data_pgto únicos; aqui isso é
+// tratado como se já fosse um pagamento avulso, sem precisar migrar os dados salvos.
+function pagamentosDaParcela(p){
+  if(Array.isArray(p.pagamentos)) return p.pagamentos;
+  if((Number(p.recebimento)||0) > 0) return [{ data: p.data_pgto || null, valor: Number(p.recebimento)||0 }];
+  return [];
+}
 function blankFichaItem(){
   return { codigo_produto:'', descricao:'', uni:1, valor_venda:0, valor_compra:0, parcelas_qtd:1, valor_parcela:0, parcelas:[blankParcela(1)] };
 }
@@ -2236,7 +2248,9 @@ function openEditarFicha(pedido, container){
           <table class="data">
             <thead><tr><th style="width:70px;">Parcela</th><th>Data pgto.</th><th class="num">Recebimento</th><th class="num">Saldo devedor</th></tr></thead>
             <tbody>
-              ${(it.parcelas||[]).map((p,pIdx)=>`
+              ${(it.parcelas||[]).map((p,pIdx)=>{
+                const pagamentos = pagamentosDaParcela(p);
+                return `
                 <tr>
                   <td>${pIdx+1}/${it.parcelas_qtd}</td>
                   <td><input type="date" class="ef-datapgto" data-it="${itIdx}" data-p="${pIdx}" value="${p.data_pgto||''}"></td>
@@ -2245,9 +2259,11 @@ function openEditarFicha(pedido, container){
                       <input class="ef-recebimento" data-it="${itIdx}" data-p="${pIdx}" inputmode="decimal" value="${fmtNumBR(p.recebimento)}" style="text-align:right; width:100px;">
                       <button type="button" class="iconbtn ef-add-pagamento" data-it="${itIdx}" data-p="${pIdx}" title="Somar um novo pagamento a esta parcela (o cliente pagou em mais de uma vez)">${ICONS.plus}</button>
                     </div>
+                    <div class="ef-pagtos-list" data-it="${itIdx}" data-p="${pIdx}" style="text-align:right; margin-top:4px; font-size:11px; color:var(--muted);">${pagamentos.length>1 ? pagamentos.map(pg=>`${fmtBRL(pg.valor)}${pg.data?(' &middot; '+fmtDate(pg.data)):''}`).join('<br>') : ''}</div>
                   </td>
                   <td class="num ef-saldo" data-it="${itIdx}" data-p="${pIdx}">R$ 0,00</td>
-                </tr>`).join('')}
+                </tr>`;
+              }).join('')}
             </tbody>
           </table>
         </div>
@@ -2291,13 +2307,16 @@ function openEditarFicha(pedido, container){
         const jaRecebido = Number(parcela.recebimento)||0;
         const valorParcela = Number(draft.itens[it2].valor_parcela)||0;
         abrirNovoPagamentoParcela(jaRecebido, valorParcela, (valor, data)=>{
-          parcela.recebimento = jaRecebido + valor;
+          // Guarda cada pagamento como lançamento próprio (data + valor) — é o que
+          // permite mostrar na interface todos os pagamentos feitos, não só a soma.
+          const pagamentos = pagamentosDaParcela(parcela);
+          pagamentos.push({ data, valor });
+          parcela.pagamentos = pagamentos;
+          parcela.recebimento = pagamentos.reduce((s,pg)=> s+(Number(pg.valor)||0), 0);
           parcela.data_pgto = data;
-          const recInp = card.querySelector(`.ef-recebimento[data-it="${it2}"][data-p="${p2}"]`);
-          if(recInp) recInp.value = fmtNumBR(parcela.recebimento);
-          const dateInp = card.querySelector(`.ef-datapgto[data-it="${it2}"][data-p="${p2}"]`);
-          if(dateInp) dateInp.value = parcela.data_pgto || '';
-          recomputeSaldos(it2);
+          card.outerHTML = renderItemCard(itIdx);
+          wireItemCard(itIdx);
+          recomputeSaldos(itIdx);
           atualizarProximoBtn();
           toast('Pagamento somado à parcela.', 'ok');
         });
@@ -2308,11 +2327,18 @@ function openEditarFicha(pedido, container){
       inp.addEventListener('input', ()=>{
         const it2 = +inp.dataset.it, p2 = +inp.dataset.p;
         const valor = parseNumBR(inp.value);
-        draft.itens[it2].parcelas[p2].recebimento = valor;
+        const parcela = draft.itens[it2].parcelas[p2];
+        parcela.recebimento = valor;
+        // Edição manual do total substitui o detalhamento por pagamento — o total
+        // digitado passa a valer sozinho (some a listinha de pagamentos abaixo, que
+        // volta a aparecer normalmente da próxima vez que um "+" for usado).
+        delete parcela.pagamentos;
+        const pagtosDiv = card.querySelector(`.ef-pagtos-list[data-it="${it2}"][data-p="${p2}"]`);
+        if(pagtosDiv) pagtosDiv.innerHTML = '';
         // Se o valor recebido voltar a zero, a parcela volta a "pendente":
         // limpa a data de pagamento automaticamente.
         if(valor <= 0){
-          draft.itens[it2].parcelas[p2].data_pgto = null;
+          parcela.data_pgto = null;
           const dateInp = card.querySelector(`.ef-datapgto[data-it="${it2}"][data-p="${p2}"]`);
           if(dateInp) dateInp.value = '';
         }
@@ -2464,10 +2490,17 @@ function openRegistrarPagamento(pedido, itIdx, pIdx, container){
     // can be frozen/immutable, and writing into their nested fields throws. Build a
     // fresh, plain clone, mutate that, and only adopt it after a successful save.
     const updated = JSON.parse(JSON.stringify(pedido));
-    const novoRecebimento = jaRecebido + valor;
+    const parcelaAtualizada = updated.itens[itIdx].parcelas[pIdx];
+    // Guarda cada pagamento como um lançamento próprio (data + valor), em vez de só
+    // o total — é o que permite mostrar na interface todos os pagamentos feitos
+    // nessa parcela, não só a soma.
+    const pagamentos = pagamentosDaParcela(parcelaAtualizada);
+    pagamentos.push({ data, valor });
+    parcelaAtualizada.pagamentos = pagamentos;
+    const novoRecebimento = pagamentos.reduce((s,pg)=> s+(Number(pg.valor)||0), 0);
     // Um valor recebido zerado nunca fica marcado como pago (mantém "pendente").
-    updated.itens[itIdx].parcelas[pIdx].data_pgto = novoRecebimento > 0 ? data : null;
-    updated.itens[itIdx].parcelas[pIdx].recebimento = novoRecebimento;
+    parcelaAtualizada.data_pgto = novoRecebimento > 0 ? data : null;
+    parcelaAtualizada.recebimento = novoRecebimento;
     saveBtn.disabled = true;
     saveBtn.innerHTML = 'Salvando…';
     try{
