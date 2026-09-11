@@ -1,0 +1,21 @@
+name: Relatório mensal
+
+on:
+  schedule:
+    # Todo dia 1º às 06:00 UTC (03:00 em São Paulo, horário padrão).
+    - cron: '0 6 1 * *'
+  workflow_dispatch: {}
+
+jobs:
+  relatorio:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r scripts/requirements.txt
+      - run: python scripts/relatorio_mensal.py
+        env:
+          SUPABASE_URL: https://bkownolaktcsxlvewijz.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
