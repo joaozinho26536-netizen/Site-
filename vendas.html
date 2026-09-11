@@ -1,0 +1,1019 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ramos de Oliveira &middot; Vendas</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800&family=Roboto+Condensed:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+<style>
+  .subtabs{ display:flex; gap:4px; margin-bottom:20px; background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:4px; width:fit-content; }
+  .subtabs button{ border:none; background:transparent; padding:9px 16px; border-radius:7px; font-size:13px; font-weight:700; cursor:pointer; color:var(--muted); font-family:inherit; }
+  .subtabs button.active{ background:var(--accent); color:#fff; }
+</style>
+</head><body>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="assets/supabase-client.js"></script>
+<script src="assets/nav.js"></script>
+<script>
+(async function(){
+  const session = await RO.requireAuth();
+  if(!session) return;
+  RO_NAV.mount('vendas');
+
+  const ICONS = RO_NAV.ICONS;
+  const esc = RO.esc, fmtBRL = RO.fmtBRL, fmtDate = RO.fmtDate, todayISO = RO.todayISO, toast = RO.toast;
+  const fmtNumBR = RO.fmtNumBR, parseNumBR = RO.parseNumBR, maskMoneyInput = RO.maskMoneyInput;
+  const proximoPagamentoPedido = RO.proximoPagamentoPedido, parcelaVencimentoEstimado = RO.parcelaVencimentoEstimado;
+  const pagamentosDaParcela = RO.pagamentosDaParcela, remanescenteParcela = RO.remanescenteParcela;
+  const estoqueControlado = RO.estoqueControlado, estoqueBaixo = RO.estoqueBaixo;
+
+  const S = { clientes: new Map(), produtos: new Map(), pedidos: new Map(), loaded:false };
+  const top = document.getElementById('content');
+  top.innerHTML = '<div class="empty"><div class="spinner" style="margin:0 auto 10px;"></div>Carregando…</div>';
+  try{
+    const [clientes, produtos, pedidos] = await Promise.all([RO.loadClientes(), RO.loadProdutos(), RO.loadPedidos()]);
+    clientes.forEach(c=> S.clientes.set(c.codigo, c));
+    produtos.forEach(p=> S.produtos.set(p.codigo, p));
+    pedidos.forEach(p=> S.pedidos.set(String(p.numero), p));
+    S.loaded = true;
+  }catch(e){
+    top.innerHTML = '<div class="empty">'+ICONS.warn+'<div>Erro ao carregar dados: '+esc(e.message)+'</div></div>';
+    return;
+  }
+
+  const MESES_LABEL = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const FORMAS_PGTO = ['DINHEIRO','BOLETO','CHEQUE','CARTÃO DE DÉBITO','CARTÃO DE CRÉDITO','PIX'];
+  const CONDICOES = ['À VISTA','30 DIAS','30/30 DIAS','30/30/30 DIAS','30/30/30/30 DIAS','30/30/30/30/30 DIAS'];
+  const PED_LISTA_NUMERIC_KEYS = new Set(['numero','total','proximo']);
+  const PED_LISTA_PAGESIZE = 20;
+
+  const pedidoUI = {
+    tab:'lista',
+    buscaNumero:'', novoItens: [], listaFiltro:'', listaPage:1, sortKey:null, sortDir:'desc',
+    prefillCliente:null, prefillForma:null, prefillCondicao:null,
+    filtroMes: null, filtroDia: null, filtroAno: new Date().getFullYear(),
+    abrirNumero: null,
+  };
+
+  /* -------- helpers de negócio locais -------- */
+  function nextPedidoNumero(){
+    let max = 0;
+    S.pedidos.forEach((v,k)=>{ const n = parseInt(k,10); if(!isNaN(n) && n>max) max=n; });
+    return max+1;
+  }
+  function contarPedidosPorMes(ano){
+    const counts = {};
+    S.pedidos.forEach(p=>{
+      const prox = proximoPagamentoPedido(p);
+      if(prox && prox.getFullYear()===ano){ const m = prox.getMonth()+1; counts[m] = (counts[m]||0)+1; }
+    });
+    return counts;
+  }
+  function contarPedidosPorDia(ano, mes){
+    const counts = {};
+    S.pedidos.forEach(p=>{
+      const prox = proximoPagamentoPedido(p);
+      if(prox && prox.getFullYear()===ano && (prox.getMonth()+1)===mes){ const d = prox.getDate(); counts[d] = (counts[d]||0)+1; }
+    });
+    return counts;
+  }
+  function abrirFichaPedido(numero){
+    pedidoUI.tab = 'lista';
+    pedidoUI.abrirNumero = String(numero);
+    renderTabs();
+    render();
+  }
+  function clienteOptionsDatalist(){
+    return Array.from(S.clientes.values()).map(c=>`<option data-codigo="${esc(c.codigo)}" value="${esc(c.nome)} (cód. ${esc(c.codigo)})"></option>`).join('');
+  }
+  function produtoOptionsDatalist(){
+    return Array.from(S.produtos.values()).map(p=>`<option data-codigo="${esc(p.codigo)}" value="${esc(p.descricao)} (cód. ${esc(p.codigo)})"></option>`).join('');
+  }
+  function findClienteByLabel(label){
+    const m = label.match(/\(cód\.\s*([^)]+)\)\s*$/);
+    if(m) return S.clientes.get(m[1].trim());
+    let found=null;
+    S.clientes.forEach(c=>{ if(!found && RO.normName(c.nome)===RO.normName(label)) found=c; });
+    return found;
+  }
+  function findProdutoByLabel(label){
+    const m = label.match(/\(cód\.\s*([^)]+)\)\s*$/);
+    if(m) return S.produtos.get(m[1].trim());
+    let found=null;
+    S.produtos.forEach(p=>{ if(!found && RO.normName(p.descricao)===RO.normName(label)) found=p; });
+    return found;
+  }
+  function abrirSeletorData(dataAtual, onEscolher){
+    const hoje = new Date();
+    const state = { ano: dataAtual ? dataAtual.getFullYear() : hoje.getFullYear(), mes: dataAtual ? dataAtual.getMonth()+1 : null };
+    const back = document.createElement('div');
+    back.className = 'modal-backdrop';
+    back.innerHTML = `<div class="modal" style="max-width:420px;"><div class="modal-head"><h3>Selecionar data</h3><button class="iconbtn" id="sd-close">&times;</button></div><div class="modal-body" id="sd-body"></div></div>`;
+    document.body.appendChild(back);
+    const close = ()=> back.remove();
+    back.querySelector('#sd-close').onclick = close;
+    back.onclick = (e)=>{ if(e.target===back) close(); };
+    function renderBody(){
+      const body = back.querySelector('#sd-body');
+      body.innerHTML = `
+        <div class="so-title" style="margin-bottom:8px;">Ano</div>
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:16px;">
+          <button class="iconbtn" id="sd-ano-prev">${ICONS.back}</button>
+          <strong style="min-width:52px; text-align:center; font-size:15px;">${state.ano}</strong>
+          <button class="iconbtn" id="sd-ano-next" style="transform:scaleX(-1);">${ICONS.back}</button>
+        </div>
+        <div class="so-title" style="margin-bottom:8px;">Mês</div>
+        <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px;">
+          ${MESES_LABEL.map((m,i)=>`<button type="button" class="btn ${state.mes===i+1?'primary':''}" data-mes="${i+1}">${m}</button>`).join('')}
+        </div>
+        <div id="sd-dias"></div>`;
+      body.querySelector('#sd-ano-prev').onclick = ()=>{ state.ano--; renderBody(); };
+      body.querySelector('#sd-ano-next').onclick = ()=>{ state.ano++; renderBody(); };
+      body.querySelectorAll('[data-mes]').forEach(btn=> btn.onclick = ()=>{ state.mes = parseInt(btn.dataset.mes,10); renderBody(); });
+      renderDias();
+    }
+    function renderDias(){
+      const wrap = back.querySelector('#sd-dias');
+      if(!wrap) return;
+      if(!state.mes){ wrap.innerHTML=''; return; }
+      const ultimoDia = new Date(state.ano, state.mes, 0).getDate();
+      const dias = Array.from({length: ultimoDia}, (_,i)=>i+1);
+      const diaSel = (dataAtual && dataAtual.getFullYear()===state.ano && (dataAtual.getMonth()+1)===state.mes) ? dataAtual.getDate() : null;
+      wrap.innerHTML = `<div class="so-title" style="margin-bottom:8px;">Dia</div><div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(42px,1fr)); gap:6px;">${dias.map(d=>`<button type="button" class="btn ${diaSel===d?'primary':''}" data-dia="${d}" style="padding:6px 2px; font-size:12px;">${d}</button>`).join('')}</div>`;
+      wrap.querySelectorAll('[data-dia]').forEach(btn=> btn.onclick = ()=>{
+        const dia = parseInt(btn.dataset.dia,10);
+        const iso = state.ano+'-'+String(state.mes).padStart(2,'0')+'-'+String(dia).padStart(2,'0');
+        close(); onEscolher(iso);
+      });
+    }
+    renderBody();
+  }
+  function abrirNovoPagamentoParcela(jaRecebido, jaDesconto, valorParcela, onConfirmar){
+    const remanescente = Math.max(0, valorParcela - jaRecebido - jaDesconto);
+    const back = document.createElement('div');
+    back.className = 'modal-backdrop';
+    back.innerHTML = `
+      <div class="modal" style="max-width:420px;">
+        <div class="modal-head"><h3>Novo pagamento nesta parcela</h3><button class="iconbtn" id="npp-close">&times;</button></div>
+        <div class="modal-body">
+          <div class="alertbox info">${ICONS.check}<div>Já recebido: <strong>${fmtBRL(jaRecebido)}</strong>${jaDesconto>0?` &middot; Desconto já concedido: <strong>${fmtBRL(jaDesconto)}</strong>`:''} &middot; Saldo: <strong>${fmtBRL(remanescente)}</strong>.</div></div>
+          <div id="npp-error"></div>
+          <div class="field-grid" style="grid-template-columns:1fr;">
+            <div class="field"><label>Data deste pagamento</label><input id="npp-data" type="date" value="${todayISO()}"></div>
+            <div class="field"><label>Valor pago</label><input id="npp-valor" inputmode="decimal" value="${fmtNumBR(remanescente)}"></div>
+            <div class="field"><label>Desconto concedido (opcional)</label><input id="npp-desconto" inputmode="decimal" value="${fmtNumBR(0)}"><div class="hint">Use para quitar a parcela dando desconto no saldo restante.</div></div>
+          </div>
+        </div>
+        <div class="modal-foot"><button class="btn" id="npp-cancel">Cancelar</button><button class="btn primary" id="npp-save">${ICONS.check} Somar</button></div>
+      </div>`;
+    document.body.appendChild(back);
+    maskMoneyInput(back.querySelector('#npp-valor'));
+    maskMoneyInput(back.querySelector('#npp-desconto'));
+    const close = ()=> back.remove();
+    back.querySelector('#npp-close').onclick = close;
+    back.querySelector('#npp-cancel').onclick = close;
+    back.onclick = (e)=>{ if(e.target===back) close(); };
+    back.querySelector('#npp-save').onclick = ()=>{
+      const errBox = back.querySelector('#npp-error'); errBox.innerHTML = '';
+      const data = back.querySelector('#npp-data').value;
+      const valor = parseNumBR(back.querySelector('#npp-valor').value);
+      const desconto = parseNumBR(back.querySelector('#npp-desconto').value);
+      if(!data){ errBox.innerHTML = '<div class="alertbox danger">'+ICONS.warn+'<div>Informe a data do pagamento.</div></div>'; return; }
+      if(valor<=0 && desconto<=0){ errBox.innerHTML = '<div class="alertbox danger">'+ICONS.warn+'<div>Informe um valor pago ou um desconto maior que zero.</div></div>'; return; }
+      close();
+      onConfirmar(valor, desconto, data);
+    };
+  }
+
+  /* -------- gravação no Supabase (tabelas normalizadas) -------- */
+  function blankParcela(n){ return { n, data_pgto:null, recebimento:0, desconto:0, recibo:null, pagamentos:[] }; }
+  function blankFichaItem(){ return { codigo_produto:'', descricao:'', uni:1, valor_venda:0, valor_compra:0, parcelas_qtd:1, valor_parcela:0, parcelas:[blankParcela(1)] }; }
+  async function excluirItensPedido(numero){
+    const { error } = await RO.sb.from('pedido_itens').delete().eq('pedido_numero', numero);
+    if(error) throw error;
+  }
+  async function salvarItensPedido(numero, itens){
+    for(const it of itens){
+      const { data: itemRow, error: e1 } = await RO.sb.from('pedido_itens').insert({
+        pedido_numero: numero, codigo_produto: it.codigo_produto || null, descricao: it.descricao || '',
+        uni: it.uni||1, valor_venda: it.valor_venda||0, valor_compra: it.valor_compra||0,
+        parcelas_qtd: it.parcelas_qtd||1, valor_parcela: it.valor_parcela||0,
+      }).select('id').single();
+      if(e1) throw e1;
+      const itemId = itemRow.id;
+      const parcelasInput = (it.parcelas||[]).map(p=>({
+        item_id: itemId, n: p.n, data_pgto: p.data_pgto||null,
+        recebimento: Number(p.recebimento)||0, desconto: Number(p.desconto)||0, recibo: p.recibo||null,
+      }));
+      if(!parcelasInput.length) continue;
+      const { data: parcRows, error: e2 } = await RO.sb.from('parcelas').insert(parcelasInput).select('id,n');
+      if(e2) throw e2;
+      const idByN = new Map(parcRows.map(r=>[r.n, r.id]));
+      const pagamentosInput = [];
+      (it.parcelas||[]).forEach(p=>{
+        const pid = idByN.get(p.n);
+        pagamentosDaParcela(p).forEach(pg=>{
+          if((Number(pg.valor)||0) > 0) pagamentosInput.push({ parcela_id: pid, data: pg.data || p.data_pgto || todayISO(), valor: pg.valor });
+        });
+      });
+      if(pagamentosInput.length){
+        const { error: e3 } = await RO.sb.from('pagamentos').insert(pagamentosInput);
+        if(e3) throw e3;
+      }
+    }
+  }
+  // Regrava um pedido inteiro (cabeçalho + itens/parcelas/pagamentos) — usado tanto
+  // para editar a ficha quanto para registrar um pagamento avulso, já que ambos
+  // partem de uma cópia completa do pedido com o trecho alterado.
+  async function salvarPedidoCompleto(numeroAntigo, draft){
+    const numeroMudou = String(draft.numero) !== String(numeroAntigo);
+    const header = {
+      numero: draft.numero, data_compra: draft.data_compra, codigo_cliente: draft.codigo_cliente || null,
+      cliente_nome: draft.cliente_nome || null, forma_pagamento: draft.forma_pagamento || null,
+      condicao_pgto: draft.condicao_pgto || 1, proximo_pagamento_override: draft.proximo_pagamento_override || null,
+    };
+    if(numeroMudou){
+      const { error: eIns } = await RO.sb.from('pedidos').insert(header);
+      if(eIns) throw eIns;
+      await salvarItensPedido(draft.numero, draft.itens);
+      const { error: eDel } = await RO.sb.from('pedidos').delete().eq('numero', numeroAntigo);
+      if(eDel) throw eDel;
+    }else{
+      const { error: eUpd } = await RO.sb.from('pedidos').update(header).eq('numero', draft.numero);
+      if(eUpd) throw eUpd;
+      await excluirItensPedido(draft.numero);
+      await salvarItensPedido(draft.numero, draft.itens);
+    }
+    const fresh = await RO.loadPedidoByNumero(draft.numero);
+    if(numeroMudou) S.pedidos.delete(String(numeroAntigo));
+    S.pedidos.set(String(draft.numero), fresh);
+    return fresh;
+  }
+  function quantidadesPorProduto(itens){
+    const map = new Map();
+    (itens||[]).forEach(it=>{ if(!it.codigo_produto) return; map.set(it.codigo_produto, (map.get(it.codigo_produto)||0) + (Number(it.uni)||0)); });
+    return map;
+  }
+  async function ajustarEstoquePedido(itensAntes, itensDepois){
+    const antes = quantidadesPorProduto(itensAntes);
+    const depois = quantidadesPorProduto(itensDepois);
+    const codigos = new Set([...antes.keys(), ...depois.keys()]);
+    const baixados = [];
+    for(const codigo of codigos){
+      const produto = S.produtos.get(codigo);
+      if(!produto || !estoqueControlado(produto)) continue;
+      const delta = (depois.get(codigo)||0) - (antes.get(codigo)||0);
+      if(!delta) continue;
+      const novoEstoque = (Number(produto.estoque)||0) - delta;
+      const { error } = await RO.sb.from('produtos').update({ estoque: novoEstoque }).eq('codigo', codigo);
+      if(error){ console.error('Erro ao ajustar estoque do produto '+codigo+':', error); continue; }
+      const atualizado = { ...produto, estoque: novoEstoque };
+      S.produtos.set(codigo, atualizado);
+      if(delta>0 && estoqueBaixo(atualizado)) baixados.push(atualizado.descricao);
+    }
+    if(baixados.length) toast('Estoque baixo após a venda: '+baixados.join(', ')+'.', 'err');
+  }
+
+  /* -------- shell de abas -------- */
+  function renderTabs(){
+    let bar = document.getElementById('vendas-subtabs');
+    if(!bar){
+      bar = document.createElement('div');
+      bar.id = 'vendas-subtabs';
+      bar.className = 'subtabs';
+      top.parentNode.insertBefore(bar, top);
+    }
+    bar.innerHTML = `<button data-tab="lista" class="${pedidoUI.tab==='lista'?'active':''}">Pedidos</button><button data-tab="novo" class="${pedidoUI.tab==='novo'?'active':''}">Criação de pedidos</button>`;
+    bar.querySelectorAll('button').forEach(b=> b.onclick = ()=>{ pedidoUI.tab = b.dataset.tab; renderTabs(); render(); });
+    if(pedidoUI.tab==='lista') RO_NAV.setTitle('Pedidos', 'Consulta, filtros e busca de pedidos', RO_NAV.backHomeBtn());
+    else RO_NAV.setTitle('Criação de pedidos', 'Emissão de novos pedidos', RO_NAV.backHomeBtn());
+  }
+  function render(){
+    if(pedidoUI.tab==='novo') renderPedidoNovo(top);
+    else renderPedidosLista(top);
+  }
+
+  /* -------- lista de pedidos + pastas -------- */
+  function renderPedidosLista(el){
+    el.innerHTML = `
+      <div class="card" style="margin-bottom:20px;">
+        <div class="card-head"><h2>Buscar pedido</h2></div>
+        <div class="card-body">
+          <div style="display:flex; gap:10px;">
+            <div class="searchbar" style="max-width:280px;">${ICONS.search}<input id="ped-busca" placeholder="Número do pedido…" value="${esc(pedidoUI.buscaNumero)}"></div>
+            <button class="btn primary" id="ped-buscar-btn">Buscar</button>
+          </div>
+          <div id="ped-resultado" style="margin-top:18px;"></div>
+        </div>
+      </div>
+      <div class="card" style="margin-bottom:20px;">
+        <div class="card-head"><h2>Pastas por mês e dia &middot; próximo pagamento</h2></div>
+        <div class="card-body" id="ped-folder-nav"></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>Todos os pedidos</h2></div>
+        <div class="card-body">
+          <div class="searchbar" style="max-width:320px; margin-bottom:14px;">${ICONS.search}<input id="ped-lista-filtro" placeholder="Buscar por nº ou cliente…" value="${esc(pedidoUI.listaFiltro)}"></div>
+          <div id="ped-lista-inner"></div>
+        </div>
+      </div>
+    `;
+
+    function renderFolderNav(){
+      const wrap = document.getElementById('ped-folder-nav');
+      if(!wrap) return;
+      const counts = contarPedidosPorMes(pedidoUI.filtroAno);
+      const totalAno = Object.values(counts).reduce((s,n)=>s+n,0);
+      wrap.innerHTML = `
+        <div class="field" style="max-width:220px; margin-bottom:16px;">
+          <label>Ir direto para uma data</label>
+          <input type="date" id="ped-busca-data">
+          <div class="hint">Mostra todos os pedidos com pagamento previsto nesse dia.</div>
+        </div>
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px;">
+          <button class="iconbtn" id="ped-ano-prev">${ICONS.back}</button>
+          <strong style="min-width:52px; text-align:center; font-size:15px;">${pedidoUI.filtroAno}</strong>
+          <button class="iconbtn" id="ped-ano-next" style="transform:scaleX(-1);">${ICONS.back}</button>
+        </div>
+        <div style="display:flex; flex-wrap:wrap; gap:8px;">
+          <button class="btn ${pedidoUI.filtroMes===null?'primary':''}" data-mes="">Todos <span style="opacity:.75;">(${totalAno})</span></button>
+          ${MESES_LABEL.map((m,i)=>`<button class="btn ${pedidoUI.filtroMes===i+1?'primary':''}" data-mes="${i+1}">${m} <span style="opacity:.75;">(${counts[i+1]||0})</span></button>`).join('')}
+        </div>
+        <div id="ped-dia-nav" style="margin-top:18px;"></div>
+      `;
+      wrap.querySelector('#ped-busca-data').onchange = (e)=>{
+        if(!e.target.value) return;
+        const d = new Date(e.target.value+'T00:00:00');
+        if(isNaN(d.getTime())) return;
+        pedidoUI.filtroAno = d.getFullYear(); pedidoUI.filtroMes = d.getMonth()+1; pedidoUI.filtroDia = d.getDate();
+        pedidoUI.listaPage = 1; renderFolderNav(); renderListaPedidosBody();
+      };
+      wrap.querySelector('#ped-ano-prev').onclick = ()=>{ pedidoUI.filtroAno--; pedidoUI.filtroDia=null; pedidoUI.listaPage=1; renderFolderNav(); renderListaPedidosBody(); };
+      wrap.querySelector('#ped-ano-next').onclick = ()=>{ pedidoUI.filtroAno++; pedidoUI.filtroDia=null; pedidoUI.listaPage=1; renderFolderNav(); renderListaPedidosBody(); };
+      wrap.querySelectorAll('[data-mes]').forEach(btn=> btn.onclick = ()=>{
+        pedidoUI.filtroMes = btn.dataset.mes ? parseInt(btn.dataset.mes,10) : null;
+        pedidoUI.filtroDia = null; pedidoUI.listaPage = 1; renderFolderNav(); renderListaPedidosBody();
+      });
+      renderDiaNav();
+    }
+    function renderDiaNav(){
+      const wrap = document.getElementById('ped-dia-nav');
+      if(!wrap) return;
+      if(!pedidoUI.filtroMes){ wrap.innerHTML=''; return; }
+      const counts = contarPedidosPorDia(pedidoUI.filtroAno, pedidoUI.filtroMes);
+      const ultimoDia = new Date(pedidoUI.filtroAno, pedidoUI.filtroMes, 0).getDate();
+      const dias = Array.from({length: ultimoDia}, (_,i)=>i+1);
+      wrap.innerHTML = `
+        <div class="so-title" style="margin-bottom:8px;">Dias de ${MESES_LABEL[pedidoUI.filtroMes-1]}/${pedidoUI.filtroAno}</div>
+        <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(54px,1fr)); gap:6px; max-width:600px;">
+          <button class="btn ${pedidoUI.filtroDia===null?'primary':''}" data-dia="" style="padding:6px 4px; font-size:12px;">Todos</button>
+          ${dias.map(d=>`<button class="btn ${pedidoUI.filtroDia===d?'primary':''}" data-dia="${d}" style="padding:6px 4px; font-size:12px; ${counts[d]?'':'opacity:.5;'}">${d}${counts[d]?`<br><span style="font-size:10px;">(${counts[d]})</span>`:''}</button>`).join('')}
+        </div>`;
+      wrap.querySelectorAll('[data-dia]').forEach(btn=> btn.onclick = ()=>{
+        pedidoUI.filtroDia = btn.dataset.dia ? parseInt(btn.dataset.dia,10) : null;
+        pedidoUI.listaPage = 1; renderDiaNav(); renderListaPedidosBody();
+      });
+    }
+
+    document.getElementById('ped-buscar-btn').onclick = doBuscarPedido;
+    document.getElementById('ped-busca').addEventListener('keydown', e=>{ if(e.key==='Enter') doBuscarPedido(); });
+    function doBuscarPedido(){
+      const numero = document.getElementById('ped-busca').value.trim();
+      pedidoUI.buscaNumero = numero;
+      const out = document.getElementById('ped-resultado');
+      if(!numero){ out.innerHTML=''; return; }
+      const pedido = S.pedidos.get(numero) || S.pedidos.get(String(parseInt(numero,10)));
+      if(!pedido){ out.innerHTML = '<div class="alertbox info">'+ICONS.warn+'<div>Nenhum pedido encontrado com o número '+esc(numero)+'.</div></div>'; return; }
+      out.innerHTML = renderFichaHTML(pedido);
+      wireFichaActions(out, pedido);
+    }
+
+    document.getElementById('ped-lista-filtro').oninput = (e)=>{ pedidoUI.listaFiltro = e.target.value; pedidoUI.listaPage = 1; RO.rerenderKeepingFocus(renderListaPedidosBody); };
+    function renderListaPedidosBody(){
+      const wrapInner = document.getElementById('ped-lista-inner');
+      if(!wrapInner) return;
+      const filtro = pedidoUI.listaFiltro.trim().toLowerCase();
+      let list = Array.from(S.pedidos.values());
+      if(filtro){
+        list = list.filter(p=>{
+          const cliente = S.clientes.get(p.codigo_cliente);
+          const nome = ((cliente?cliente.nome:'') || p.cliente_nome || '').toLowerCase();
+          return String(p.numero).toLowerCase().includes(filtro) || nome.includes(filtro);
+        });
+      }
+      let enriched = list.map(p=>{
+        const { totalGeral, quitado } = RO.pedidoTotais(p);
+        const cliente = S.clientes.get(p.codigo_cliente);
+        const clienteNome = (cliente?cliente.nome:'') || p.cliente_nome || '';
+        return { p, totalGeral, quitado, clienteNome, proximoPagamento: proximoPagamentoPedido(p) };
+      });
+      if(pedidoUI.filtroMes){
+        enriched = enriched.filter(row=> row.proximoPagamento && row.proximoPagamento.getFullYear()===pedidoUI.filtroAno && (row.proximoPagamento.getMonth()+1)===pedidoUI.filtroMes);
+        if(pedidoUI.filtroDia) enriched = enriched.filter(row=> row.proximoPagamento.getDate()===pedidoUI.filtroDia);
+      }
+      enriched = RO.sortRows(enriched, pedidoUI, (row,key)=>{
+        if(key==='numero') return row.p.numero;
+        if(key==='cliente') return row.clienteNome;
+        if(key==='data') return row.p.data_compra;
+        if(key==='total') return row.totalGeral;
+        if(key==='status') return row.quitado ? 'Quitado' : 'Em aberto';
+        if(key==='proximo') return row.proximoPagamento ? row.proximoPagamento.getTime() : Infinity;
+        return '';
+      }, PED_LISTA_NUMERIC_KEYS, (a,b)=> (Number(b.p.numero)||0)-(Number(a.p.numero)||0));
+      const total = enriched.length;
+      const pages = Math.max(1, Math.ceil(total/PED_LISTA_PAGESIZE));
+      pedidoUI.listaPage = Math.min(pedidoUI.listaPage, pages);
+      const start = (pedidoUI.listaPage-1)*PED_LISTA_PAGESIZE;
+      const pageItems = enriched.slice(start, start+PED_LISTA_PAGESIZE);
+
+      wrapInner.innerHTML = `
+        <div class="table-wrap">
+          <table class="data">
+            <thead><tr>${RO.thSort('Nº','numero',pedidoUI,PED_LISTA_NUMERIC_KEYS)}${RO.thSort('Cliente','cliente',pedidoUI,PED_LISTA_NUMERIC_KEYS)}${RO.thSort('Data','data',pedidoUI,PED_LISTA_NUMERIC_KEYS)}${RO.thSort('Total','total',pedidoUI,PED_LISTA_NUMERIC_KEYS,'num')}${RO.thSort('Próximo pagamento','proximo',pedidoUI,PED_LISTA_NUMERIC_KEYS)}${RO.thSort('Status','status',pedidoUI,PED_LISTA_NUMERIC_KEYS)}<th></th></tr></thead>
+            <tbody>
+              ${pageItems.length ? pageItems.map(({p,totalGeral,quitado,clienteNome,proximoPagamento})=>{
+                const hoje = new Date(); hoje.setHours(0,0,0,0);
+                const vencido = proximoPagamento && proximoPagamento < hoje;
+                return `<tr class="pedrow" data-numero="${esc(p.numero)}" title="Abrir ficha do pedido">
+                  <td>${esc(p.numero)}</td>
+                  <td>${esc(clienteNome||'—')}</td>
+                  <td>${fmtDate(p.data_compra)}</td>
+                  <td class="num">${fmtBRL(totalGeral)}</td>
+                  <td>${proximoPagamento ? `<span class="badge ${vencido?'alert':'pending'}">${fmtDate(proximoPagamento)}</span>` : '—'}</td>
+                  <td><span class="badge ${quitado?'ok':'pending'}">${quitado?'Quitado':'Em aberto'}</span></td>
+                  <td style="text-align:right; color:var(--muted);">${ICONS.external}</td>
+                </tr>`;
+              }).join('') : `<tr><td colspan="7"><div class="empty">${ICONS.file}<div>Nenhum pedido encontrado.</div></div></td></tr>`}
+            </tbody>
+          </table>
+        </div>
+        <div class="pager" style="padding:12px 18px;">
+          <span>${total} pedido${total===1?'':'s'} &middot; Página ${pedidoUI.listaPage} de ${pages}</span>
+          <div style="display:flex; gap:8px;">
+            <button class="btn" ${pedidoUI.listaPage<=1?'disabled':''} id="ped-lista-prev">Anterior</button>
+            <button class="btn" ${pedidoUI.listaPage>=pages?'disabled':''} id="ped-lista-next">Próxima</button>
+          </div>
+        </div>
+      `;
+      RO.wireSortHeaders(wrapInner, pedidoUI, PED_LISTA_NUMERIC_KEYS, renderListaPedidosBody);
+      wrapInner.querySelectorAll('.pedrow').forEach(tr=> tr.onclick = ()=> abrirFichaPedido(tr.dataset.numero));
+      const prevBtn = document.getElementById('ped-lista-prev'); if(prevBtn) prevBtn.onclick = ()=>{ pedidoUI.listaPage--; renderListaPedidosBody(); };
+      const nextBtn = document.getElementById('ped-lista-next'); if(nextBtn) nextBtn.onclick = ()=>{ pedidoUI.listaPage++; renderListaPedidosBody(); };
+    }
+    renderFolderNav();
+    renderListaPedidosBody();
+
+    if(pedidoUI.abrirNumero){
+      const num = pedidoUI.abrirNumero;
+      pedidoUI.abrirNumero = null;
+      pedidoUI.buscaNumero = num;
+      document.getElementById('ped-busca').value = num;
+      doBuscarPedido();
+    }
+  }
+
+  /* -------- ficha do pedido -------- */
+  function renderFichaHTML(pedido){
+    const cliente = S.clientes.get(pedido.codigo_cliente);
+    const { totalGeral, totalRecebido, totalDesconto, quitado } = RO.pedidoTotais(pedido);
+    return `
+      <div class="ficha">
+        <div class="ficha-top">
+          <div>
+            <h2>RAMOS DE OLIVEIRA ENXOVAIS</h2>
+            <div style="color:var(--muted); font-size:12.5px; margin-top:2px;">Pedido nº ${esc(pedido.numero)} &middot; ${fmtDate(pedido.data_compra)}</div>
+          </div>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span class="badge ${quitado?'ok':'pending'}">${quitado?'Quitado':'Em aberto'}</span>
+            <button class="btn ghost fp-duplicar" title="Criar um novo pedido com os mesmos itens">${ICONS.box} Duplicar pedido</button>
+            <button class="iconbtn fp-editar" title="Editar ficha">${ICONS.edit}</button>
+            <button class="iconbtn fp-excluir" title="Excluir ficha">${ICONS.trash}</button>
+          </div>
+        </div>
+        <dl>
+          <dt>Cliente</dt><dd>${esc((cliente?cliente.nome:'')||pedido.cliente_nome||'')} (cód. ${esc(pedido.codigo_cliente)})</dd>
+          <dt>Endereço</dt><dd>${cliente? esc([cliente.rua,cliente.numero,cliente.bairro,cliente.cidade,cliente.estado].filter(Boolean).join(', ')) : '—'}</dd>
+          <dt>CPF</dt><dd>${cliente? esc(cliente.cpf_cnpj)||'—' : '—'}</dd>
+          <dt>Forma de pagamento</dt><dd>${esc(pedido.forma_pagamento)} &middot; ${esc(CONDICOES[(pedido.condicao_pgto||1)-1]||'')}</dd>
+          <dt>Próximo pagamento</dt><dd>${(()=>{ const prox = proximoPagamentoPedido(pedido); return prox ? fmtDate(prox) : '—'; })()}</dd>
+        </dl>
+        <div class="table-wrap" style="margin-top:16px;">
+          <table class="data">
+            <thead><tr><th>Produto</th><th>Uni.</th><th>Parcela</th><th class="num">Valor</th><th>Data pgto.</th><th class="num">Recebimento</th><th class="num">Saldo devedor</th><th></th></tr></thead>
+            <tbody>
+              ${(pedido.itens||[]).map((it,itIdx)=>{
+                const totalItem = (it.valor_venda||0)*(it.uni||1);
+                let saldo = totalItem;
+                return (it.parcelas||[]).map((p,pIdx)=>{
+                  saldo -= (p.recebimento||0) + (p.desconto||0);
+                  const remanescente = remanescenteParcela(it.valor_parcela, p);
+                  const pagamentos = pagamentosDaParcela(p);
+                  return `<tr>
+                    <td>${pIdx===0?esc(it.descricao):''}</td>
+                    <td>${pIdx===0?esc(it.uni):''}</td>
+                    <td>${p.n}/${it.parcelas_qtd}</td>
+                    <td class="num">${fmtBRL(it.valor_parcela)}</td>
+                    <td>${p.data_pgto? fmtDate(p.data_pgto) : '<span class="badge pending">pendente</span>'}</td>
+                    <td class="num">
+                      ${fmtBRL(p.recebimento)}
+                      ${pagamentos.length>1 ? `<div style="font-size:11px; color:var(--muted); font-weight:400;">${pagamentos.map(pg=>`${fmtBRL(pg.valor)}${pg.data?(' &middot; '+fmtDate(pg.data)):''}`).join('<br>')}</div>` : ''}
+                      ${(p.desconto||0)>0 ? `<div style="font-size:11px; color:var(--success); font-weight:400;">desconto ${fmtBRL(p.desconto)}</div>` : ''}
+                    </td>
+                    <td class="num">${fmtBRL(Math.max(saldo,0))}</td>
+                    <td>${remanescente>0.005 ? `<button class="btn ghost fp-pagar" data-item="${itIdx}" data-parc="${pIdx}" style="font-size:12px;">${(p.recebimento||0)>0||(p.desconto||0)>0?('+ Novo pagamento'):'Registrar pgto.'}</button>` : ''}</td>
+                  </tr>`;
+                }).join('');
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+        <div style="text-align:right; margin-top:12px; font-size:13.5px;">
+          Total do pedido: <strong>${fmtBRL(totalGeral)}</strong> &middot; Recebido: <strong>${fmtBRL(totalRecebido)}</strong>${totalDesconto>0?` &middot; Desconto: <strong>${fmtBRL(totalDesconto)}</strong>`:''} &middot; Saldo: <strong>${fmtBRL(Math.max(totalGeral-totalRecebido-totalDesconto,0))}</strong>
+        </div>
+      </div>
+    `;
+  }
+  function wireFichaActions(container, pedido){
+    container.querySelectorAll('.fp-pagar').forEach(btn=> btn.onclick = ()=> openRegistrarPagamento(pedido, +btn.dataset.item, +btn.dataset.parc, container));
+    const editBtn = container.querySelector('.fp-editar'); if(editBtn) editBtn.onclick = ()=> openEditarFicha(pedido, container);
+    const delBtn = container.querySelector('.fp-excluir'); if(delBtn) delBtn.onclick = ()=> excluirFicha(pedido, container);
+    const dupBtn = container.querySelector('.fp-duplicar'); if(dupBtn) dupBtn.onclick = ()=> duplicarPedido(pedido);
+  }
+  function duplicarPedido(pedido){
+    pedidoUI.novoItens = (pedido.itens||[]).map(it=>({
+      produtoLabel: it.descricao ? (it.descricao+' (cód. '+it.codigo_produto+')') : '',
+      codigo_produto: it.codigo_produto, descricao: it.descricao,
+      uni: it.uni||1, valor_unit: it.valor_venda||0, valor_custo: it.valor_compra||0,
+      parcelas_qtd: it.parcelas_qtd||1, valor_parcela: it.valor_parcela||0,
+    }));
+    if(pedidoUI.novoItens.length===0) pedidoUI.novoItens.push({ produtoLabel:'', codigo_produto:'', descricao:'', uni:1, valor_unit:0, parcelas_qtd:1, valor_parcela:0 });
+    const clienteDup = S.clientes.get(pedido.codigo_cliente);
+    const nomeDup = (clienteDup?clienteDup.nome:'') || pedido.cliente_nome || '';
+    pedidoUI.prefillCliente = nomeDup ? (nomeDup+' (cód. '+pedido.codigo_cliente+')') : '';
+    pedidoUI.prefillForma = pedido.forma_pagamento || null;
+    pedidoUI.prefillCondicao = pedido.condicao_pgto || null;
+    toast('Pedido duplicado — revise os dados e clique em "Emitir pedido".', 'ok');
+    pedidoUI.tab = 'novo';
+    renderTabs(); render();
+  }
+  async function excluirFicha(pedido, container){
+    if(!confirm('Excluir definitivamente o pedido nº '+pedido.numero+'? Esta ação não pode ser desfeita.')) return;
+    try{
+      await ajustarEstoquePedido(pedido.itens, []);
+      const { error } = await RO.sb.from('pedidos').delete().eq('numero', pedido.numero);
+      if(error) throw error;
+      S.pedidos.delete(String(pedido.numero));
+      toast('Pedido nº '+pedido.numero+' excluído.', 'ok');
+      container.innerHTML = '';
+      pedidoUI.buscaNumero = '';
+      const buscaInput = document.getElementById('ped-busca'); if(buscaInput) buscaInput.value = '';
+    }catch(e){
+      console.error('Erro ao excluir pedido:', e);
+      toast('Erro ao excluir: '+((e&&e.message)||String(e)), 'err');
+    }
+  }
+
+  function openRegistrarPagamento(pedido, itIdx, pIdx, container){
+    const jaRecebido = Number(pedido.itens[itIdx].parcelas[pIdx].recebimento)||0;
+    const jaDesconto = Number(pedido.itens[itIdx].parcelas[pIdx].desconto)||0;
+    const valorParcela = Number(pedido.itens[itIdx].valor_parcela)||0;
+    const remanescente = Math.max(0, valorParcela - jaRecebido - jaDesconto);
+    const back = document.createElement('div');
+    back.className = 'modal-backdrop';
+    back.innerHTML = `
+      <div class="modal" style="max-width:420px;">
+        <div class="modal-head"><h3>${(jaRecebido>0||jaDesconto>0)?'Novo pagamento nesta parcela':'Registrar pagamento'}</h3><button class="iconbtn" id="rp-close">&times;</button></div>
+        <div class="modal-body">
+          ${(jaRecebido>0||jaDesconto>0) ? `<div class="alertbox info">${ICONS.check}<div>Já recebido nesta parcela: <strong>${fmtBRL(jaRecebido)}</strong>${jaDesconto>0?` &middot; Desconto já concedido: <strong>${fmtBRL(jaDesconto)}</strong>`:''} &middot; Saldo: <strong>${fmtBRL(remanescente)}</strong>.</div></div>` : ''}
+          <div id="rp-error"></div>
+          <div class="field-grid" style="grid-template-columns:1fr;">
+            <div class="field"><label>Data do pagamento</label><input id="rp-data" type="date" value="${todayISO()}"></div>
+            <div class="field"><label>Valor pago</label><input id="rp-valor" inputmode="decimal" value="${fmtNumBR(remanescente)}"></div>
+            <div class="field"><label>Desconto concedido (opcional)</label><input id="rp-desconto" inputmode="decimal" value="${fmtNumBR(0)}"><div class="hint">Use para quitar o pedido dando desconto no saldo restante.</div></div>
+          </div>
+        </div>
+        <div class="modal-foot"><button class="btn" id="rp-cancel">Cancelar</button><button class="btn primary" id="rp-save">${ICONS.check} Salvar</button></div>
+      </div>`;
+    document.body.appendChild(back);
+    maskMoneyInput(back.querySelector('#rp-valor'));
+    maskMoneyInput(back.querySelector('#rp-desconto'));
+    const close = ()=> back.remove();
+    back.querySelector('#rp-close').onclick = close;
+    back.querySelector('#rp-cancel').onclick = close;
+    back.onclick = (e)=>{ if(e.target===back) close(); };
+    const saveBtn = back.querySelector('#rp-save');
+    const saveBtnHTML = saveBtn.innerHTML;
+    saveBtn.onclick = async ()=>{
+      const errBox = back.querySelector('#rp-error'); errBox.innerHTML = '';
+      const data = back.querySelector('#rp-data').value;
+      const valor = parseNumBR(back.querySelector('#rp-valor').value);
+      const desconto = parseNumBR(back.querySelector('#rp-desconto').value);
+      if(!data){ errBox.innerHTML = '<div class="alertbox danger">'+ICONS.warn+'<div>Informe a data do pagamento.</div></div>'; return; }
+      if(valor<=0 && desconto<=0){ errBox.innerHTML = '<div class="alertbox danger">'+ICONS.warn+'<div>Informe um valor pago ou um desconto maior que zero.</div></div>'; return; }
+      const updated = JSON.parse(JSON.stringify(pedido));
+      const parcelaAtualizada = updated.itens[itIdx].parcelas[pIdx];
+      let novoRecebimento = jaRecebido;
+      if(valor>0){
+        const pagamentos = pagamentosDaParcela(parcelaAtualizada);
+        pagamentos.push({ data, valor });
+        parcelaAtualizada.pagamentos = pagamentos;
+        novoRecebimento = pagamentos.reduce((s,pg)=> s+(Number(pg.valor)||0), 0);
+        parcelaAtualizada.recebimento = novoRecebimento;
+      }
+      const novoDesconto = desconto>0 ? jaDesconto+desconto : jaDesconto;
+      if(desconto>0) parcelaAtualizada.desconto = novoDesconto;
+      parcelaAtualizada.data_pgto = (novoRecebimento+novoDesconto) > 0 ? data : null;
+      saveBtn.disabled = true; saveBtn.innerHTML = 'Salvando…';
+      try{
+        const fresh = await salvarPedidoCompleto(pedido.numero, updated);
+        toast('Pagamento registrado.', 'ok');
+        container.innerHTML = renderFichaHTML(fresh);
+        wireFichaActions(container, fresh);
+        close();
+      }catch(e){
+        console.error('Erro ao registrar pagamento:', e);
+        errBox.innerHTML = '<div class="alertbox danger">'+ICONS.warn+'<div>Erro ao salvar: '+esc((e&&e.message)||String(e))+'</div></div>';
+        saveBtn.disabled = false; saveBtn.innerHTML = saveBtnHTML;
+      }
+    };
+  }
+
+  function openEditarFicha(pedido, container){
+    const draft = JSON.parse(JSON.stringify(pedido));
+    if(!Array.isArray(draft.itens) || draft.itens.length===0) draft.itens = [blankFichaItem()];
+    const clienteAtual = S.clientes.get(draft.codigo_cliente);
+    const clienteLabelInicial = clienteAtual ? `${clienteAtual.nome} (cód. ${clienteAtual.codigo})` : (draft.cliente_nome||'');
+
+    const back = document.createElement('div');
+    back.className = 'modal-backdrop';
+    back.innerHTML = `
+      <div class="modal" style="max-width:780px; max-height:88vh; display:flex; flex-direction:column;">
+        <div class="modal-head"><h3>Editar pedido nº ${esc(draft.numero)}</h3><button class="iconbtn" id="ef-close">&times;</button></div>
+        <div class="modal-body" style="overflow-y:auto;">
+          <div id="ef-error"></div>
+          <div class="field-grid" style="margin-bottom:16px; grid-auto-flow:dense;">
+            <div class="field">
+              <label>Número do pedido</label>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <input id="ef-numero" value="${esc(draft.numero)}" style="flex:1;">
+                <span class="badge alert" id="ef-numero-badge" style="display:none;">Duplicado</span>
+              </div>
+            </div>
+            <div class="field"><label>Data da compra</label><input id="ef-data" type="date" value="${esc(draft.data_compra||'')}"></div>
+            <div class="field span2"><label>Cliente</label>
+              <input id="ef-cliente" list="ef-dl-clientes" value="${esc(clienteLabelInicial)}" placeholder="Buscar por nome ou código…">
+              <datalist id="ef-dl-clientes">${clienteOptionsDatalist()}</datalist>
+            </div>
+            <div class="field"><label>Forma de pagamento</label>
+              <select id="ef-forma">${FORMAS_PGTO.map(f=>`<option ${f===draft.forma_pagamento?'selected':''}>${esc(f)}</option>`).join('')}</select>
+            </div>
+            <div class="field"><label>Condição (nº de parcelas)</label><input id="ef-condicao" type="number" min="1" value="${draft.condicao_pgto||1}"></div>
+            <div class="field">
+              <label>Próximo pagamento</label>
+              <button type="button" class="btn" id="ef-proximo-btn" style="width:100%; justify-content:flex-start;"></button>
+              <div class="hint" id="ef-proximo-hint"></div>
+            </div>
+          </div>
+          <div id="ef-itens"></div>
+          <button class="btn" id="ef-add-item" style="margin-top:6px;">${ICONS.plus} Adicionar produto</button>
+          <div style="text-align:right; margin-top:14px; font-size:13.5px; color:var(--muted);" id="ef-resumo"></div>
+        </div>
+        <div class="modal-foot"><button class="btn" id="ef-cancel">Cancelar</button><button class="btn primary" id="ef-save">${ICONS.check} Salvar alterações</button></div>
+      </div>`;
+    document.body.appendChild(back);
+    const close = ()=> back.remove();
+    back.querySelector('#ef-close').onclick = close;
+    back.querySelector('#ef-cancel').onclick = close;
+
+    function itemTotal(it){ return (it.valor_parcela||0) * (it.parcelas_qtd||0); }
+    function renderResumo(){
+      const totalGeral = draft.itens.reduce((s,it)=> s + itemTotal(it)*(it.uni||1), 0);
+      const totalRecebido = draft.itens.reduce((s,it)=> s + (it.parcelas||[]).reduce((s2,p)=> s2+(Number(p.recebimento)||0), 0), 0);
+      const totalDesconto = draft.itens.reduce((s,it)=> s + (it.parcelas||[]).reduce((s2,p)=> s2+(Number(p.desconto)||0), 0), 0);
+      back.querySelector('#ef-resumo').innerHTML = `Total: <strong>${fmtBRL(totalGeral)}</strong> &middot; Recebido: <strong>${fmtBRL(totalRecebido)}</strong>${totalDesconto>0?` &middot; Desconto: <strong>${fmtBRL(totalDesconto)}</strong>`:''} &middot; Saldo: <strong>${fmtBRL(Math.max(totalGeral-totalRecebido-totalDesconto,0))}</strong>`;
+    }
+    function atualizarProximoBtn(){
+      const btn = back.querySelector('#ef-proximo-btn');
+      const hint = back.querySelector('#ef-proximo-hint');
+      if(!btn) return;
+      const prox = proximoPagamentoPedido(draft);
+      btn.innerHTML = ICONS.edit + ' ' + (prox ? fmtDate(prox) : 'Selecionar data');
+      if(hint){
+        if(draft.proximo_pagamento_override){
+          hint.textContent = 'Definido manualmente — clique para voltar ao automático';
+          hint.style.cursor = 'pointer';
+          hint.onclick = ()=>{ draft.proximo_pagamento_override = null; atualizarProximoBtn(); };
+        }else{ hint.textContent = ''; hint.style.cursor = ''; hint.onclick = null; }
+      }
+    }
+    back.querySelector('#ef-proximo-btn').onclick = ()=>{
+      abrirSeletorData(proximoPagamentoPedido(draft), (iso)=>{ draft.proximo_pagamento_override = iso; atualizarProximoBtn(); });
+    };
+    back.querySelector('#ef-data').addEventListener('input', (e)=>{ draft.data_compra = e.target.value; atualizarProximoBtn(); });
+
+    const numeroInp = back.querySelector('#ef-numero');
+    const numeroBadge = back.querySelector('#ef-numero-badge');
+    function numeroDuplicado(){
+      const val = numeroInp.value.trim();
+      return !!val && val !== String(pedido.numero) && S.pedidos.has(val);
+    }
+    numeroInp.addEventListener('input', ()=>{ numeroBadge.style.display = numeroDuplicado() ? 'inline-flex' : 'none'; });
+
+    function recomputeSaldos(itIdx){
+      const it = draft.itens[itIdx];
+      const total = itemTotal(it);
+      let saldo = total;
+      (it.parcelas||[]).forEach((p,pIdx)=>{
+        saldo -= (Number(p.recebimento)||0) + (Number(p.desconto)||0);
+        const cell = back.querySelector(`.ef-saldo[data-it="${itIdx}"][data-p="${pIdx}"]`);
+        if(cell) cell.textContent = fmtBRL(Math.max(saldo,0));
+      });
+      renderResumo();
+    }
+    function renderItemCard(itIdx){
+      const it = draft.itens[itIdx];
+      return `
+        <div class="card" style="margin-top:12px; padding:12px;" id="ef-item-${itIdx}">
+          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
+            <div class="field" style="flex:2; min-width:200px;"><label>Produto</label><input class="ef-produto" data-it="${itIdx}" value="${esc(it.descricao)}"></div>
+            <div class="field" style="width:70px;"><label>Uni.</label><input type="number" min="1" class="ef-uni" data-it="${itIdx}" value="${it.uni||1}"></div>
+            <div class="field" style="width:130px;"><label>Valor/parcela</label><input class="ef-valorparcela" data-it="${itIdx}" inputmode="decimal" value="${fmtNumBR(it.valor_parcela)}"></div>
+            <div class="field" style="width:90px;"><label>Parcelas</label><input type="number" min="1" class="ef-parcelasqtd" data-it="${itIdx}" value="${it.parcelas_qtd||1}"></div>
+            <button class="iconbtn ef-del-item" data-it="${itIdx}" title="Remover produto">${ICONS.trash}</button>
+          </div>
+          <div class="table-wrap" style="margin-top:10px;">
+            <table class="data">
+              <thead><tr><th style="width:70px;">Parcela</th><th>Data pgto.</th><th class="num">Recebimento</th><th class="num">Saldo devedor</th></tr></thead>
+              <tbody>
+                ${(it.parcelas||[]).map((p,pIdx)=>{
+                  const pagamentos = pagamentosDaParcela(p);
+                  return `
+                  <tr>
+                    <td>${pIdx+1}/${it.parcelas_qtd}</td>
+                    <td><input type="date" class="ef-datapgto" data-it="${itIdx}" data-p="${pIdx}" value="${p.data_pgto||''}"></td>
+                    <td class="num">
+                      <div style="display:flex; align-items:center; gap:4px; justify-content:flex-end;">
+                        <input class="ef-recebimento" data-it="${itIdx}" data-p="${pIdx}" inputmode="decimal" value="${fmtNumBR(p.recebimento)}" style="text-align:right; width:100px;">
+                        <button type="button" class="iconbtn ef-add-pagamento" data-it="${itIdx}" data-p="${pIdx}" title="Somar um novo pagamento a esta parcela">${ICONS.plus}</button>
+                      </div>
+                      <div class="ef-pagtos-list" data-it="${itIdx}" data-p="${pIdx}" style="text-align:right; margin-top:4px; font-size:11px; color:var(--muted);">${pagamentos.length>1 ? pagamentos.map(pg=>`${fmtBRL(pg.valor)}${pg.data?(' &middot; '+fmtDate(pg.data)):''}`).join('<br>') : ''}</div>
+                      <div class="ef-desconto-txt" data-it="${itIdx}" data-p="${pIdx}" style="text-align:right; margin-top:4px; font-size:11px; color:var(--success);">${(p.desconto||0)>0 ? ('desconto '+fmtBRL(p.desconto)) : ''}</div>
+                    </td>
+                    <td class="num ef-saldo" data-it="${itIdx}" data-p="${pIdx}">R$ 0,00</td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>`;
+    }
+    function wireItemCard(itIdx){
+      const card = back.querySelector(`#ef-item-${itIdx}`);
+      if(!card) return;
+      card.querySelector('.ef-produto').oninput = (e)=>{ draft.itens[itIdx].descricao = e.target.value; };
+      card.querySelector('.ef-uni').oninput = (e)=>{ draft.itens[itIdx].uni = parseFloat(e.target.value)||1; recomputeSaldos(itIdx); };
+      const valorInp = card.querySelector('.ef-valorparcela');
+      maskMoneyInput(valorInp);
+      valorInp.addEventListener('input', ()=>{ draft.itens[itIdx].valor_parcela = parseNumBR(valorInp.value); recomputeSaldos(itIdx); });
+      card.querySelector('.ef-parcelasqtd').onchange = (e)=>{
+        let qtd = parseInt(e.target.value)||1; if(qtd<1) qtd=1;
+        const it = draft.itens[itIdx];
+        const removendoPagas = qtd < it.parcelas.length && it.parcelas.slice(qtd).some(p=>p.data_pgto);
+        if(removendoPagas && !confirm('Reduzir o nº de parcelas vai remover parcelas que já têm pagamento registrado. Continuar?')){
+          e.target.value = it.parcelas_qtd; return;
+        }
+        while(it.parcelas.length < qtd) it.parcelas.push(blankParcela(it.parcelas.length+1));
+        if(it.parcelas.length > qtd) it.parcelas = it.parcelas.slice(0, qtd);
+        it.parcelas.forEach((p,i)=> p.n = i+1);
+        it.parcelas_qtd = qtd;
+        card.outerHTML = renderItemCard(itIdx);
+        wireItemCard(itIdx);
+        recomputeSaldos(itIdx);
+        atualizarProximoBtn();
+      };
+      card.querySelectorAll('.ef-datapgto').forEach(inp=>{
+        inp.onchange = (e)=>{ draft.itens[+e.target.dataset.it].parcelas[+e.target.dataset.p].data_pgto = e.target.value || null; atualizarProximoBtn(); };
+      });
+      card.querySelectorAll('.ef-add-pagamento').forEach(btn=>{
+        btn.onclick = ()=>{
+          const it2 = +btn.dataset.it, p2 = +btn.dataset.p;
+          const parcela = draft.itens[it2].parcelas[p2];
+          const jaRecebido = Number(parcela.recebimento)||0;
+          const jaDesconto = Number(parcela.desconto)||0;
+          const valorParcela = Number(draft.itens[it2].valor_parcela)||0;
+          abrirNovoPagamentoParcela(jaRecebido, jaDesconto, valorParcela, (valor, desconto, data)=>{
+            if(valor>0){
+              const pagamentos = pagamentosDaParcela(parcela);
+              pagamentos.push({ data, valor });
+              parcela.pagamentos = pagamentos;
+              parcela.recebimento = pagamentos.reduce((s,pg)=> s+(Number(pg.valor)||0), 0);
+            }
+            if(desconto>0) parcela.desconto = jaDesconto + desconto;
+            parcela.data_pgto = data;
+            card.outerHTML = renderItemCard(itIdx);
+            wireItemCard(itIdx);
+            recomputeSaldos(itIdx);
+            atualizarProximoBtn();
+            toast(desconto>0 ? 'Pagamento e desconto somados à parcela.' : 'Pagamento somado à parcela.', 'ok');
+          });
+        };
+      });
+      card.querySelectorAll('.ef-recebimento').forEach(inp=>{
+        maskMoneyInput(inp);
+        inp.addEventListener('input', ()=>{
+          const it2 = +inp.dataset.it, p2 = +inp.dataset.p;
+          const valor = parseNumBR(inp.value);
+          const parcela = draft.itens[it2].parcelas[p2];
+          parcela.recebimento = valor;
+          delete parcela.pagamentos;
+          const pagtosDiv = card.querySelector(`.ef-pagtos-list[data-it="${it2}"][data-p="${p2}"]`);
+          if(pagtosDiv) pagtosDiv.innerHTML = '';
+          if(valor <= 0){
+            parcela.data_pgto = null;
+            const dateInp = card.querySelector(`.ef-datapgto[data-it="${it2}"][data-p="${p2}"]`);
+            if(dateInp) dateInp.value = '';
+          }
+          recomputeSaldos(it2);
+        });
+      });
+      card.querySelector('.ef-del-item').onclick = ()=>{
+        if(draft.itens.length<=1){ toast('O pedido precisa ter ao menos um produto.', 'err'); return; }
+        if(!confirm('Remover este produto da ficha?')) return;
+        draft.itens.splice(itIdx,1);
+        renderAllItens();
+      };
+    }
+    function renderAllItens(){
+      back.querySelector('#ef-itens').innerHTML = draft.itens.map((it,itIdx)=> renderItemCard(itIdx)).join('');
+      draft.itens.forEach((it,itIdx)=>{ wireItemCard(itIdx); recomputeSaldos(itIdx); });
+      renderResumo();
+      atualizarProximoBtn();
+    }
+    renderAllItens();
+    back.querySelector('#ef-add-item').onclick = ()=>{ draft.itens.push(blankFichaItem()); renderAllItens(); };
+
+    back.querySelector('#ef-save').onclick = async ()=>{
+      const errBox = back.querySelector('#ef-error'); errBox.innerHTML = '';
+      const numeroStr = numeroInp.value.trim();
+      if(!numeroStr){ errBox.innerHTML = '<div class="alertbox danger">'+ICONS.warn+'<div>Informe o número do pedido.</div></div>'; return; }
+      const novoNumero = parseInt(numeroStr, 10);
+      if(isNaN(novoNumero) || String(novoNumero) !== numeroStr){ errBox.innerHTML = '<div class="alertbox danger">'+ICONS.warn+'<div>Número do pedido inválido — use apenas dígitos.</div></div>'; return; }
+      const numeroMudou = String(novoNumero) !== String(pedido.numero);
+      if(numeroMudou && S.pedidos.has(String(novoNumero))){ errBox.innerHTML = '<div class="alertbox danger">'+ICONS.warn+'<div><strong>Duplicado</strong> — já existe um pedido com o número '+esc(novoNumero)+'. Escolha outro número.</div></div>'; return; }
+
+      draft.numero = novoNumero;
+      draft.data_compra = back.querySelector('#ef-data').value || draft.data_compra || todayISO();
+      draft.forma_pagamento = back.querySelector('#ef-forma').value;
+      draft.condicao_pgto = parseInt(back.querySelector('#ef-condicao').value,10)||1;
+      const clienteLabel = back.querySelector('#ef-cliente').value.trim();
+      const clienteMatch = clienteLabel ? findClienteByLabel(clienteLabel) : null;
+      if(clienteMatch){ draft.codigo_cliente = clienteMatch.codigo; draft.cliente_nome = clienteMatch.nome; }
+      else if(clienteLabel){ draft.cliente_nome = clienteLabel; }
+      draft.itens.forEach(it=>{ it.valor_venda = it.valor_parcela * it.parcelas_qtd; });
+
+      const saveBtn = back.querySelector('#ef-save');
+      const saveBtnHTML = saveBtn.innerHTML;
+      saveBtn.disabled = true; saveBtn.innerHTML = 'Salvando…';
+      try{
+        await ajustarEstoquePedido(pedido.itens, draft.itens);
+        const fresh = await salvarPedidoCompleto(pedido.numero, draft);
+        toast(numeroMudou ? 'Salvo — pedido renumerado para nº '+draft.numero+'.' : 'Salva a alteração', 'ok');
+        container.innerHTML = renderFichaHTML(fresh);
+        wireFichaActions(container, fresh);
+        close();
+      }catch(e){
+        console.error('Erro ao salvar edição do pedido:', e);
+        errBox.innerHTML = '<div class="alertbox danger">'+ICONS.warn+'<div>Erro ao salvar: '+esc((e&&e.message)||String(e))+'</div></div>';
+        saveBtn.disabled = false; saveBtn.innerHTML = saveBtnHTML;
+      }
+    };
+  }
+
+  /* -------- criação de pedido -------- */
+  function renderPedidoNovo(el){
+    el.innerHTML = `
+      <div class="card" id="ped-novo-card">
+        <div class="card-head"><h2>Novo pedido</h2><button class="btn" id="ped-add-item">${ICONS.plus} Adicionar item</button></div>
+        <div class="card-body">
+          <div id="ped-error"></div>
+          ${pedidoUI.prefillCliente ? `<div class="alertbox info">${ICONS.check}<div>Itens do pedido duplicado. Revise os dados e clique em "Emitir pedido" para confirmar.</div></div>` : ''}
+          <div class="field-grid" style="margin-bottom:18px;">
+            <div class="field"><label>Nº do pedido</label><input disabled value="${nextPedidoNumero()}"></div>
+            <div class="field"><label>Data da compra</label><input id="np-data" type="date" value="${todayISO()}"></div>
+            <div class="field span2"><label>Cliente *</label>
+              <input id="np-cliente" list="dl-clientes" placeholder="Buscar por nome ou código…" value="${esc(pedidoUI.prefillCliente||'')}">
+              <datalist id="dl-clientes">${clienteOptionsDatalist()}</datalist>
+            </div>
+            <div class="field"><label>Forma de pagamento</label>
+              <select id="np-forma">${FORMAS_PGTO.map(f=>`<option ${pedidoUI.prefillForma===f?'selected':''}>${f}</option>`).join('')}</select>
+            </div>
+            <div class="field"><label>Condição de pagamento</label>
+              <select id="np-condicao">${CONDICOES.map((c,i)=>`<option value="${i+1}" ${pedidoUI.prefillCondicao===(i+1)?'selected':''}>${c}</option>`).join('')}</select>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="data">
+              <thead><tr><th>Produto</th><th>Uni.</th><th class="num">Valor unit.</th><th>Parcelas</th><th class="num">Valor/parcela</th><th></th></tr></thead>
+              <tbody id="np-itens-body"></tbody>
+            </table>
+          </div>
+          <div style="text-align:right; margin-top:12px; font-size:14px;"><strong>Total do pedido: <span id="np-total">R$ 0,00</span></strong></div>
+          <div style="margin-top:16px; display:flex; justify-content:flex-end;">
+            <button class="btn primary" id="np-salvar">${ICONS.check} Emitir pedido</button>
+          </div>
+        </div>
+      </div>
+    `;
+    pedidoUI.prefillCliente = null; pedidoUI.prefillForma = null; pedidoUI.prefillCondicao = null;
+
+    if(pedidoUI.novoItens.length===0) pedidoUI.novoItens.push(blankItem());
+    renderItensRows();
+    document.getElementById('ped-add-item').onclick = ()=>{ pedidoUI.novoItens.push(blankItem()); renderItensRows(); };
+
+    function blankItem(){ return { produtoLabel:'', codigo_produto:'', descricao:'', uni:1, valor_unit:0, parcelas_qtd:1, valor_parcela:0 }; }
+
+    function renderItensRows(){
+      const body = document.getElementById('np-itens-body');
+      body.innerHTML = pedidoUI.novoItens.map((it,idx)=>`
+        <tr>
+          <td style="min-width:220px;"><input list="dl-produtos" data-idx="${idx}" class="np-produto" value="${esc(it.produtoLabel)}" placeholder="Buscar produto…"></td>
+          <td style="width:70px;"><input type="number" min="1" data-idx="${idx}" class="np-uni" value="${it.uni}"></td>
+          <td class="num" style="width:120px;"><input type="number" step="0.01" data-idx="${idx}" class="np-unit" value="${it.valor_unit}"></td>
+          <td style="width:90px;"><input type="number" min="1" data-idx="${idx}" class="np-parcelas" value="${it.parcelas_qtd}"></td>
+          <td class="num" style="width:120px;"><input type="number" step="0.01" data-idx="${idx}" class="np-valorparcela" value="${it.valor_parcela}"></td>
+          <td><button class="iconbtn np-del" data-idx="${idx}" title="Remover">${ICONS.trash}</button></td>
+        </tr>`).join('');
+      if(!document.getElementById('dl-produtos')){
+        document.getElementById('np-itens-body').insertAdjacentHTML('afterend', `<datalist id="dl-produtos">${produtoOptionsDatalist()}</datalist>`);
+      }
+      body.querySelectorAll('.np-produto').forEach(inp=> inp.onchange = (e)=>{
+        const idx = +e.target.dataset.idx; const it = pedidoUI.novoItens[idx];
+        it.produtoLabel = e.target.value;
+        const prod = findProdutoByLabel(e.target.value);
+        if(prod){ it.codigo_produto = prod.codigo; it.descricao = prod.descricao; it.valor_unit = Number(prod.valor_venda)||0; it.valor_custo = Number(prod.valor_compra)||0; }
+        recalcRow(idx); renderItensRows();
+      });
+      body.querySelectorAll('.np-uni').forEach(inp=> inp.oninput = (e)=>{ pedidoUI.novoItens[+e.target.dataset.idx].uni = parseFloat(e.target.value)||1; recalcRow(+e.target.dataset.idx); updateTotal(); });
+      body.querySelectorAll('.np-unit').forEach(inp=> inp.oninput = (e)=>{ pedidoUI.novoItens[+e.target.dataset.idx].valor_unit = parseFloat(e.target.value)||0; recalcRow(+e.target.dataset.idx); updateTotal(); });
+      body.querySelectorAll('.np-parcelas').forEach(inp=> inp.oninput = (e)=>{ pedidoUI.novoItens[+e.target.dataset.idx].parcelas_qtd = parseInt(e.target.value)||1; recalcRow(+e.target.dataset.idx); updateTotal(); });
+      body.querySelectorAll('.np-valorparcela').forEach(inp=> inp.oninput = (e)=>{ pedidoUI.novoItens[+e.target.dataset.idx].valor_parcela = parseFloat(e.target.value)||0; updateTotal(); });
+      body.querySelectorAll('.np-del').forEach(btn=> btn.onclick = (e)=>{ pedidoUI.novoItens.splice(+e.target.closest('button').dataset.idx,1); if(pedidoUI.novoItens.length===0) pedidoUI.novoItens.push(blankItem()); renderItensRows(); updateTotal(); });
+      updateTotal();
+    }
+    function recalcRow(idx){
+      const it = pedidoUI.novoItens[idx];
+      const total = (it.valor_unit||0) * (it.uni||1);
+      it.valor_parcela = it.parcelas_qtd ? Math.round((total/it.parcelas_qtd)*100)/100 : total;
+      const cell = document.querySelector('.np-valorparcela[data-idx="'+idx+'"]');
+      if(cell) cell.value = it.valor_parcela;
+    }
+    function updateTotal(){
+      const total = pedidoUI.novoItens.reduce((s,it)=> s + (it.valor_unit||0)*(it.uni||1), 0);
+      const elT = document.getElementById('np-total'); if(elT) elT.textContent = fmtBRL(total);
+    }
+
+    document.getElementById('np-salvar').onclick = salvarPedido;
+    async function salvarPedido(){
+      const errBox = document.getElementById('ped-error'); errBox.innerHTML='';
+      const clienteLabel = document.getElementById('np-cliente').value.trim();
+      const cliente = findClienteByLabel(clienteLabel);
+      if(!cliente){ errBox.innerHTML = '<div class="alertbox danger">'+ICONS.warn+'<div>Selecione um cliente válido da lista.</div></div>'; toast('Erro no salvamento', 'err'); return; }
+      const itensValidos = pedidoUI.novoItens.filter(it=>it.codigo_produto);
+      if(itensValidos.length===0){ errBox.innerHTML = '<div class="alertbox danger">'+ICONS.warn+'<div>Adicione ao menos um produto válido.</div></div>'; toast('Erro no salvamento', 'err'); return; }
+
+      const numero = nextPedidoNumero();
+      const itens = itensValidos.map(it=>({
+        codigo_produto: it.codigo_produto, descricao: it.descricao, uni: it.uni||1,
+        valor_venda: it.valor_unit||0, valor_compra: it.valor_custo||0,
+        parcelas_qtd: it.parcelas_qtd||1, valor_parcela: it.valor_parcela||0,
+        parcelas: Array.from({length: it.parcelas_qtd||1}, (_,i)=> blankParcela(i+1)),
+      }));
+      const saveBtn = document.getElementById('np-salvar');
+      saveBtn.disabled = true; saveBtn.textContent = 'Emitindo…';
+      try{
+        const { error } = await RO.sb.from('pedidos').insert({
+          numero, data_compra: document.getElementById('np-data').value || todayISO(),
+          codigo_cliente: cliente.codigo, cliente_nome: cliente.nome,
+          forma_pagamento: document.getElementById('np-forma').value,
+          condicao_pgto: parseInt(document.getElementById('np-condicao').value,10),
+        });
+        if(error) throw error;
+        await salvarItensPedido(numero, itens);
+        const fresh = await RO.loadPedidoByNumero(numero);
+        S.pedidos.set(String(numero), fresh);
+        await ajustarEstoquePedido([], itens);
+        toast('Salvo', 'ok');
+        pedidoUI.novoItens = [];
+        abrirFichaPedido(numero);
+      }catch(e){
+        console.error('Erro ao emitir pedido:', e);
+        errBox.innerHTML = '<div class="alertbox danger">'+ICONS.warn+'<div>Erro ao emitir pedido: '+esc((e&&e.message)||String(e))+'</div></div>';
+        toast('Erro no salvamento', 'err');
+        saveBtn.disabled = false; saveBtn.textContent = 'Emitir pedido';
+      }
+    }
+  }
+
+  renderTabs();
+  render();
+})();
+</script>
+</body></html>

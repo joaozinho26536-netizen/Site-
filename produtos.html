@@ -1,0 +1,297 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ramos de Oliveira &middot; Produtos</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800&family=Roboto+Condensed:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head><body>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="assets/supabase-client.js"></script>
+<script src="assets/nav.js"></script>
+<script>
+(async function(){
+  const session = await RO.requireAuth();
+  if(!session) return;
+  RO_NAV.mount('produtos');
+  RO_NAV.setTitle('Produtos', 'Catálogo de produtos', RO_NAV.backHomeBtn());
+
+  const ICONS = RO_NAV.ICONS;
+  const esc = RO.esc, fmtBRL = RO.fmtBRL, normName = RO.normName, toast = RO.toast;
+  const estoqueControlado = RO.estoqueControlado, estoqueBaixo = RO.estoqueBaixo;
+
+  const S = { produtos: new Map(), loaded: false };
+  const ui = {
+    search:'', page:1, pageSize:50,
+    selected: new Set(), screenOptsOpen: false,
+    cols: { ncm:true, custo:true, venda:true, lucro:true, estoque:true },
+    sortKey: null, sortDir: 'asc',
+  };
+  const NUMERIC_KEYS = new Set(['codigo','valor_compra','valor_venda','lucro','estoque']);
+  function sortGetter(p, key){ return key==='lucro' ? (Number(p.valor_venda)||0)-(Number(p.valor_compra)||0) : p[key]; }
+
+  const el = document.getElementById('content');
+  el.innerHTML = '<div class="empty"><div class="spinner" style="margin:0 auto 10px;"></div>Carregando produtos…</div>';
+  try{
+    (await RO.loadProdutos()).forEach(p=> S.produtos.set(p.codigo, p));
+    S.loaded = true;
+  }catch(e){
+    el.innerHTML = '<div class="empty">'+ICONS.warn+'<div>Erro ao carregar produtos: '+esc(e.message)+'</div></div>';
+    return;
+  }
+
+  function render(){
+    const q = ui.search.trim().toLowerCase();
+    let list = Array.from(S.produtos.values());
+    if(q){
+      list = list.filter(p => (p.descricao||'').toLowerCase().includes(q) || String(p.codigo).toLowerCase().includes(q) || (p.ncm||'').toLowerCase().includes(q));
+    }
+    list = RO.sortRows(list, ui, sortGetter, NUMERIC_KEYS, (a,b)=> (a.descricao||'').localeCompare(b.descricao||''));
+    const total = list.length;
+    const pages = Math.max(1, Math.ceil(total/ui.pageSize));
+    ui.page = Math.min(ui.page, pages);
+    const start = (ui.page-1)*ui.pageSize;
+    const pageItems = list.slice(start, start+ui.pageSize);
+    const semNcm = list.filter(p=>!p.ncm).length;
+    const baixoEstoque = Array.from(S.produtos.values()).filter(estoqueBaixo);
+
+    const headerCells = ['<th class="chk-col"><input type="checkbox" id="prod-check-all"></th>', RO.thSort('Cód.','codigo',ui,NUMERIC_KEYS), RO.thSort('Descrição','descricao',ui,NUMERIC_KEYS)];
+    if(ui.cols.ncm) headerCells.push(RO.thSort('NCM','ncm',ui,NUMERIC_KEYS));
+    if(ui.cols.custo) headerCells.push(RO.thSort('Custo','valor_compra',ui,NUMERIC_KEYS,'num'));
+    if(ui.cols.venda) headerCells.push(RO.thSort('Venda','valor_venda',ui,NUMERIC_KEYS,'num'));
+    if(ui.cols.lucro) headerCells.push(RO.thSort('Lucro','lucro',ui,NUMERIC_KEYS,'num'));
+    if(ui.cols.estoque) headerCells.push(RO.thSort('Estoque','estoque',ui,NUMERIC_KEYS,'num'));
+    headerCells.push('<th></th>');
+
+    el.innerHTML = `
+      ${baixoEstoque.length ? `<div class="alertbox danger">${ICONS.warn}<div><strong>${baixoEstoque.length} produto(s) com estoque baixo:</strong> ${baixoEstoque.map(p=>esc(p.descricao)+' ('+p.estoque+' un.)').join(', ')}.</div></div>` : ''}
+      ${semNcm ? `<div class="alertbox info">${ICONS.warn}<div>${semNcm} produto(s) ainda sem NCM cadastrado.</div></div>` : ''}
+      <div class="toolbar">
+        <div class="searchbar">${ICONS.search}<input id="prod-search" placeholder="Buscar por descrição, código ou NCM…" value="${esc(ui.search)}"></div>
+        <div class="toolbar-right">
+          <span style="color:var(--muted); font-size:12.5px;">${total} produto${total===1?'':'s'}</span>
+          <div class="screenopts-wrap">
+            <button class="btn screenopts-btn${ui.screenOptsOpen?' open':''}" id="prod-so-btn">Opções de tela ${ICONS.down}</button>
+            ${ui.screenOptsOpen ? `<div class="screenopts-panel" id="prod-so-panel">
+              <label class="so-title">Itens por página</label>
+              <input type="number" min="5" max="500" id="prod-so-pagesize" value="${ui.pageSize}">
+              <label class="so-title">Colunas visíveis</label>
+              <label class="so-col"><input type="checkbox" class="prod-so-col" data-col="ncm" ${ui.cols.ncm?'checked':''}> NCM</label>
+              <label class="so-col"><input type="checkbox" class="prod-so-col" data-col="custo" ${ui.cols.custo?'checked':''}> Custo</label>
+              <label class="so-col"><input type="checkbox" class="prod-so-col" data-col="venda" ${ui.cols.venda?'checked':''}> Venda</label>
+              <label class="so-col"><input type="checkbox" class="prod-so-col" data-col="lucro" ${ui.cols.lucro?'checked':''}> Lucro</label>
+              <label class="so-col"><input type="checkbox" class="prod-so-col" data-col="estoque" ${ui.cols.estoque?'checked':''}> Estoque</label>
+            </div>` : ''}
+          </div>
+          <button class="btn primary" id="prod-new">${ICONS.plus} Novo produto</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="bulkbar">
+          <select id="prod-bulk-action">
+            <option value="">Ações em massa</option>
+            <option value="excluir">Excluir selecionados</option>
+          </select>
+          <button class="btn" id="prod-bulk-apply">Aplicar</button>
+          <span>${ui.selected.size} selecionado${ui.selected.size===1?'':'s'}</span>
+        </div>
+        <div class="table-wrap">
+          <table class="data">
+            <thead><tr>${headerCells.join('')}</tr></thead>
+            <tbody>
+              ${pageItems.length ? pageItems.map(p=>`
+                <tr>
+                  <td class="chk-col"><input type="checkbox" class="prod-check" value="${esc(p.codigo)}" ${ui.selected.has(p.codigo)?'checked':''}></td>
+                  <td>${esc(p.codigo)}</td>
+                  <td>${esc(p.descricao)}</td>
+                  ${ui.cols.ncm?`<td>${p.ncm ? esc(p.ncm) : '<span class="badge pending">sem NCM</span>'}</td>`:''}
+                  ${ui.cols.custo?`<td class="num">${fmtBRL(p.valor_compra)}</td>`:''}
+                  ${ui.cols.venda?`<td class="num">${fmtBRL(p.valor_venda)}</td>`:''}
+                  ${ui.cols.lucro?`<td class="num">${fmtBRL((Number(p.valor_venda)||0)-(Number(p.valor_compra)||0))}</td>`:''}
+                  ${ui.cols.estoque?`<td class="num">${estoqueControlado(p) ? (estoqueBaixo(p) ? `<span class="badge alert">${esc(p.estoque)} un.</span>` : (p.estoque+' un.')) : '<span class="badge neutral">não controlado</span>'}</td>`:''}
+                  <td><div class="rowactions">
+                    <button class="iconbtn" data-edit="${esc(p.codigo)}" title="Editar">${ICONS.edit}</button>
+                    <button class="iconbtn" data-del="${esc(p.codigo)}" title="Excluir">${ICONS.trash}</button>
+                  </div></td>
+                </tr>`).join('') : `<tr><td colspan="${headerCells.length}"><div class="empty">${ICONS.box}<div>Nenhum produto encontrado.</div></div></td></tr>`}
+            </tbody>
+          </table>
+        </div>
+        <div class="pager" style="padding:12px 18px;">
+          <span>Página ${ui.page} de ${pages}</span>
+          <div style="display:flex; gap:8px;">
+            <button class="btn" ${ui.page<=1?'disabled':''} id="prod-prev">Anterior</button>
+            <button class="btn" ${ui.page>=pages?'disabled':''} id="prod-next">Próxima</button>
+          </div>
+        </div>
+      </div>
+    `;
+    document.getElementById('prod-search').oninput = (e)=>{ ui.search = e.target.value; ui.page=1; RO.rerenderKeepingFocus(render); };
+    document.getElementById('prod-new').onclick = ()=> openProdutoModal(null);
+    RO.wireSortHeaders(el, ui, NUMERIC_KEYS, render);
+    const prevBtn = document.getElementById('prod-prev'); if(prevBtn) prevBtn.onclick = ()=>{ ui.page--; render(); };
+    const nextBtn = document.getElementById('prod-next'); if(nextBtn) nextBtn.onclick = ()=>{ ui.page++; render(); };
+    el.querySelectorAll('[data-edit]').forEach(b=> b.onclick = ()=> openProdutoModal(S.produtos.get(b.dataset.edit)));
+    el.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=> deleteProduto(b.dataset.del));
+
+    document.getElementById('prod-so-btn').onclick = ()=>{ ui.screenOptsOpen = !ui.screenOptsOpen; render(); };
+    const soPageSize = document.getElementById('prod-so-pagesize');
+    if(soPageSize) soPageSize.onchange = (e)=>{
+      let v = parseInt(e.target.value,10)||50;
+      v = Math.min(500, Math.max(5, v));
+      ui.pageSize = v; ui.page = 1; render();
+    };
+    el.querySelectorAll('.prod-so-col').forEach(chk=>{
+      chk.onchange = (e)=>{ ui.cols[e.target.dataset.col] = e.target.checked; render(); };
+    });
+
+    const checkAll = document.getElementById('prod-check-all');
+    const pageCodes = pageItems.map(p=>p.codigo);
+    function updateBulkUI(){
+      const countEl = el.querySelector('.bulkbar span');
+      if(countEl) countEl.textContent = ui.selected.size+' selecionado'+(ui.selected.size===1?'':'s');
+      if(checkAll) checkAll.checked = pageCodes.length>0 && pageCodes.every(cd=>ui.selected.has(cd));
+    }
+    if(checkAll){
+      checkAll.checked = pageCodes.length>0 && pageCodes.every(cd=>ui.selected.has(cd));
+      checkAll.onchange = (e)=>{
+        pageCodes.forEach(cd=> e.target.checked ? ui.selected.add(cd) : ui.selected.delete(cd));
+        el.querySelectorAll('.prod-check').forEach(chk=> chk.checked = e.target.checked);
+        updateBulkUI();
+      };
+    }
+    el.querySelectorAll('.prod-check').forEach(chk=>{
+      chk.onchange = (e)=>{
+        e.target.checked ? ui.selected.add(e.target.value) : ui.selected.delete(e.target.value);
+        updateBulkUI();
+      };
+    });
+    document.getElementById('prod-bulk-apply').onclick = async ()=>{
+      const action = document.getElementById('prod-bulk-action').value;
+      if(!action){ toast('Selecione uma ação em massa.', 'err'); return; }
+      if(ui.selected.size===0){ toast('Selecione ao menos um produto.', 'err'); return; }
+      if(action==='excluir') await bulkExcluirProdutos();
+    };
+
+    async function bulkExcluirProdutos(){
+      const codigos = Array.from(ui.selected);
+      if(!confirm('Excluir '+codigos.length+' produto(s) selecionado(s)? Esta ação não pode ser desfeita.')) return;
+      let ok=0, fail=0;
+      for(const codigo of codigos){
+        const { error } = await RO.sb.from('produtos').delete().eq('codigo', codigo);
+        if(error){ console.error('Erro ao excluir produto '+codigo+':', error); fail++; continue; }
+        S.produtos.delete(codigo);
+        ui.selected.delete(codigo);
+        ok++;
+      }
+      toast(fail===0 ? ok+' produto(s) excluído(s).' : ok+' excluído(s), '+fail+' com erro.', fail===0?'ok':'err');
+      render();
+    }
+  }
+
+  async function deleteProduto(codigo){
+    const p = S.produtos.get(codigo);
+    if(!confirm('Excluir o produto "'+(p?p.descricao:codigo)+'"? Esta ação não pode ser desfeita.')) return;
+    const { error } = await RO.sb.from('produtos').delete().eq('codigo', codigo);
+    if(error){ toast('Erro ao excluir: '+error.message, 'err'); return; }
+    S.produtos.delete(codigo);
+    ui.selected.delete(codigo);
+    toast('Produto excluído.', 'ok');
+    render();
+  }
+
+  function openProdutoModal(existing){
+    const isEdit = !!existing;
+    const p = existing || { codigo: RO.nextCodigo(S.produtos), descricao:'', ncm:'', valor_compra:0, valor_venda:0, pct_venda:0, entrada:0, valor_entrada:0, parcelas:1, desconto:0, valor_com_desconto:0, estoque:null, estoque_min:5 };
+
+    const back = document.createElement('div');
+    back.className = 'modal-backdrop';
+    back.innerHTML = `
+      <div class="modal">
+        <div class="modal-head"><h3>${isEdit?'Editar produto':'Novo produto'}</h3><button class="iconbtn" id="pm-close">&times;</button></div>
+        <div class="modal-body">
+          <div id="pm-error"></div>
+          <div class="field-grid">
+            <div class="field"><label>Código</label><input id="p-codigo" value="${esc(p.codigo)}" ${isEdit?'disabled':''}></div>
+            <div class="field span2"><label>Descrição *</label><input id="p-descricao" value="${esc(p.descricao)}"></div>
+            <div class="field"><label>NCM</label><input id="p-ncm" value="${esc(p.ncm)}" placeholder="0000.00.00"></div>
+            <div class="field"><label>Custo (valor de compra) *</label><input id="p-compra" type="number" step="0.01" value="${p.valor_compra}"></div>
+            <div class="field"><label>Venda (valor de venda) *</label><input id="p-venda" type="number" step="0.01" value="${p.valor_venda}"></div>
+            <div class="field"><label>Lucro</label><input id="p-lucro" disabled value="${fmtBRL((Number(p.valor_venda)||0)-(Number(p.valor_compra)||0))}"></div>
+            <div class="field"><label>% de venda</label><input id="p-pct" type="number" step="0.01" value="${p.pct_venda}"></div>
+            <div class="field"><label>Entrada</label><input id="p-entrada" type="number" step="0.01" value="${p.entrada}"></div>
+            <div class="field"><label>Valor de entrada</label><input id="p-valorentrada" type="number" step="0.01" value="${p.valor_entrada}"></div>
+            <div class="field"><label>Parcelas</label><input id="p-parcelas" type="number" step="1" value="${p.parcelas}"></div>
+            <div class="field"><label>Desconto</label><input id="p-desconto" type="number" step="0.01" value="${p.desconto}"></div>
+            <div class="field"><label>Valor com desconto</label><input id="p-comdesconto" type="number" step="0.01" value="${p.valor_com_desconto}"></div>
+            <div class="field"><label>Estoque atual</label><input id="p-estoque" type="number" step="1" placeholder="não controlado" value="${estoqueControlado(p)?esc(p.estoque):''}"></div>
+            <div class="field"><label>Estoque mínimo (alerta)</label><input id="p-estoquemin" type="number" step="1" value="${p.estoque_min ?? 5}"></div>
+          </div>
+          <div style="margin-top:4px; font-size:12px; color:var(--muted);">Deixe "Estoque atual" em branco se não quiser controlar estoque deste produto. O estoque não é debitado automaticamente pelas vendas — atualize aqui manualmente.</div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn" id="pm-cancel">Cancelar</button>
+          <button class="btn primary" id="pm-save">${ICONS.check} Salvar</button>
+        </div>
+      </div>`;
+    document.body.appendChild(back);
+    const close = ()=> back.remove();
+    back.querySelector('#pm-close').onclick = close;
+    back.querySelector('#pm-cancel').onclick = close;
+    back.onclick = (e)=>{ if(e.target===back) close(); };
+
+    const recalc = ()=>{
+      const compra = parseFloat(back.querySelector('#p-compra').value)||0;
+      const venda = parseFloat(back.querySelector('#p-venda').value)||0;
+      back.querySelector('#p-lucro').value = fmtBRL(venda-compra);
+    };
+    back.querySelector('#p-compra').oninput = recalc;
+    back.querySelector('#p-venda').oninput = recalc;
+
+    back.querySelector('#pm-save').onclick = async ()=>{
+      const codigo = back.querySelector('#p-codigo').value.trim();
+      const descricao = back.querySelector('#p-descricao').value.trim();
+      const errBox = back.querySelector('#pm-error');
+      errBox.innerHTML = '';
+      if(!codigo || !descricao){
+        errBox.innerHTML = '<div class="alertbox danger">'+ICONS.warn+'<div>Código e descrição são obrigatórios.</div></div>';
+        return;
+      }
+      if(!isEdit && S.produtos.has(codigo)){
+        errBox.innerHTML = '<div class="alertbox danger">'+ICONS.warn+'<div>Já existe um produto com o código '+esc(codigo)+'.</div></div>';
+        return;
+      }
+      if(!isEdit){
+        let sameDesc = null;
+        S.produtos.forEach(other=>{ if(normName(other.descricao)===normName(descricao)) sameDesc = other; });
+        if(sameDesc && !confirm('Já existe um produto "'+sameDesc.descricao+'" (código '+sameDesc.codigo+'). Deseja cadastrar mesmo assim?')) return;
+      }
+      const valor_compra = parseFloat(back.querySelector('#p-compra').value)||0;
+      const valor_venda = parseFloat(back.querySelector('#p-venda').value)||0;
+      const estoqueRaw = back.querySelector('#p-estoque').value.trim();
+      const data = {
+        codigo, descricao: descricao.toUpperCase(),
+        ncm: back.querySelector('#p-ncm').value.trim(),
+        valor_compra, valor_venda,
+        pct_venda: parseFloat(back.querySelector('#p-pct').value)||0,
+        entrada: parseFloat(back.querySelector('#p-entrada').value)||0,
+        valor_entrada: parseFloat(back.querySelector('#p-valorentrada').value)||0,
+        parcelas: parseInt(back.querySelector('#p-parcelas').value)||0,
+        desconto: parseFloat(back.querySelector('#p-desconto').value)||0,
+        valor_com_desconto: parseFloat(back.querySelector('#p-comdesconto').value)||0,
+        estoque: estoqueRaw==='' ? null : (parseInt(estoqueRaw,10)||0),
+        estoque_min: parseInt(back.querySelector('#p-estoquemin').value,10)||0,
+      };
+      const { error } = isEdit
+        ? await RO.sb.from('produtos').update(data).eq('codigo', codigo)
+        : await RO.sb.from('produtos').insert(data);
+      if(error){ errBox.innerHTML = '<div class="alertbox danger">'+ICONS.warn+'<div>Erro ao salvar: '+esc(error.message)+'</div></div>'; return; }
+      S.produtos.set(codigo, data);
+      toast(isEdit?'Produto atualizado.':'Produto cadastrado.', 'ok');
+      close();
+      render();
+    };
+  }
+
+  render();
+})();
+</script>
+</body></html>
