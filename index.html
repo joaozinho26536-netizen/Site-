@@ -2083,7 +2083,14 @@ function openEditarFicha(pedido, container){
       <div class="modal-head"><h3>Editar pedido nº ${esc(draft.numero)}</h3><button class="iconbtn" id="ef-close">&times;</button></div>
       <div class="modal-body" style="overflow-y:auto;">
         <div id="ef-error"></div>
-        <div class="field-grid" style="margin-bottom:16px;">
+        <div class="field-grid" style="margin-bottom:16px; grid-auto-flow:dense;">
+          <div class="field">
+            <label>Número do pedido</label>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <input id="ef-numero" value="${esc(draft.numero)}" style="flex:1;">
+              <span class="badge alert" id="ef-numero-badge" style="display:none;">Duplicado</span>
+            </div>
+          </div>
           <div class="field"><label>Data da compra</label><input id="ef-data" type="date" value="${esc(draft.data_compra||'')}"></div>
           <div class="field span2"><label>Cliente</label>
             <input id="ef-cliente" list="ef-dl-clientes" value="${esc(clienteLabelInicial)}" placeholder="Buscar por nome ou código…">
@@ -2148,6 +2155,17 @@ function openEditarFicha(pedido, container){
     });
   };
   back.querySelector('#ef-data').addEventListener('input', (e)=>{ draft.data_compra = e.target.value; atualizarProximoBtn(); });
+
+  // Renomear o número do pedido: o número é o próprio id do documento no banco, então
+  // "duplicado" aqui significa que já existe outro pedido com esse id — sinaliza em
+  // tempo real (badge) e bloqueia o salvamento até o número ser único.
+  const numeroInp = back.querySelector('#ef-numero');
+  const numeroBadge = back.querySelector('#ef-numero-badge');
+  function numeroDuplicado(){
+    const val = numeroInp.value.trim();
+    return !!val && val !== String(pedido.numero) && S.pedidos.has(val);
+  }
+  numeroInp.addEventListener('input', ()=>{ numeroBadge.style.display = numeroDuplicado() ? 'inline-flex' : 'none'; });
 
   function recomputeSaldos(itIdx){
     const it = draft.itens[itIdx];
@@ -2260,9 +2278,25 @@ function openEditarFicha(pedido, container){
   back.querySelector('#ef-save').onclick = async ()=>{
     const errBox = back.querySelector('#ef-error');
     errBox.innerHTML = '';
+    const numeroStr = numeroInp.value.trim();
+    if(!numeroStr){
+      errBox.innerHTML = '<div class="alertbox danger">'+ICONS.warn+'<div>Informe o número do pedido.</div></div>';
+      errBox.scrollIntoView({behavior:'smooth', block:'center'}); toast('Erro no salvamento', 'err'); return;
+    }
+    const novoNumero = parseInt(numeroStr, 10);
+    if(isNaN(novoNumero) || String(novoNumero) !== numeroStr){
+      errBox.innerHTML = '<div class="alertbox danger">'+ICONS.warn+'<div>Número do pedido inválido — use apenas dígitos.</div></div>';
+      errBox.scrollIntoView({behavior:'smooth', block:'center'}); toast('Erro no salvamento', 'err'); return;
+    }
+    const numeroMudou = String(novoNumero) !== String(pedido.numero);
+    if(numeroMudou && S.pedidos.has(String(novoNumero))){
+      errBox.innerHTML = '<div class="alertbox danger">'+ICONS.warn+'<div><strong>Duplicado</strong> — já existe um pedido com o número '+esc(novoNumero)+'. Escolha outro número.</div></div>';
+      errBox.scrollIntoView({behavior:'smooth', block:'center'}); toast('Erro no salvamento', 'err'); return;
+    }
     const data = back.querySelector('#ef-data').value || draft.data_compra || todayISO();
     const clienteLabel = back.querySelector('#ef-cliente').value.trim();
     const clienteMatch = clienteLabel ? findClienteByLabel(clienteLabel) : null;
+    draft.numero = novoNumero;
     draft.data_compra = data;
     draft.forma_pagamento = back.querySelector('#ef-forma').value;
     draft.condicao_pgto = parseInt(back.querySelector('#ef-condicao').value,10)||1;
@@ -2282,8 +2316,15 @@ function openEditarFicha(pedido, container){
       // `pedido` object in place: it may be a frozen/immutable snapshot from the db
       // cache, and writing into it (e.g. deleting/reassigning its own keys) throws.
       S.pedidos.set(String(draft.numero), draft);
+      // O número é o próprio id do documento — mudar o número move o pedido para um
+      // novo documento. Só apaga o antigo depois do novo já estar salvo com sucesso,
+      // para nunca perder dados se o salvamento falhar no meio do caminho.
+      if(numeroMudou){
+        await S.db.collection('pedidos').doc(String(pedido.numero)).delete();
+        S.pedidos.delete(String(pedido.numero));
+      }
       await ajustarEstoquePedido(pedido.itens, draft.itens);
-      toast('Salva a alteração', 'ok');
+      toast(numeroMudou ? 'Salvo — pedido renumerado para nº '+draft.numero+'.' : 'Salva a alteração', 'ok');
       container.innerHTML = renderFichaHTML(draft);
       wireFichaActions(container, draft);
       close();
