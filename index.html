@@ -897,7 +897,7 @@ function listaContasAReceber(){
         const valor = Math.max(0, parcelaValor - (Number(parc.recebimento)||0));
         linhas.push({
           numero: p.numero,
-          cliente: p.cliente_nome || (S.clientes.get(p.codigo_cliente)||{}).nome || '',
+          cliente: (S.clientes.get(p.codigo_cliente)||{}).nome || p.cliente_nome || '',
           n: parc.n, totalParcelas: it.parcelas_qtd,
           valor, vencimento: venc, vencida,
           diasAtraso: venc && vencida ? Math.max(0, Math.round((hoje-venc)/86400000)) : 0,
@@ -1766,7 +1766,7 @@ function renderPedidosLista(el){
     if(filtro){
       list = list.filter(p=>{
         const cliente = S.clientes.get(p.codigo_cliente);
-        const nome = (p.cliente_nome || (cliente?cliente.nome:'') || '').toLowerCase();
+        const nome = ((cliente?cliente.nome:'') || p.cliente_nome || '').toLowerCase();
         return String(p.numero).toLowerCase().includes(filtro) || nome.includes(filtro);
       });
     }
@@ -1778,7 +1778,7 @@ function renderPedidosLista(el){
       const totalRecebido = (p.itens||[]).reduce((s,it)=> s + (it.parcelas||[]).reduce((s2,pp)=>s2+(pp.recebimento||0),0), 0);
       const quitado = totalRecebido >= totalGeral - 0.005;
       const cliente = S.clientes.get(p.codigo_cliente);
-      const clienteNome = p.cliente_nome || (cliente?cliente.nome:'') || '';
+      const clienteNome = (cliente?cliente.nome:'') || p.cliente_nome || '';
       const proximoPagamento = proximoPagamentoPedido(p);
       return { p, totalGeral, quitado, clienteNome, proximoPagamento };
     });
@@ -2018,7 +2018,7 @@ function renderFichaHTML(pedido){
         </div>
       </div>
       <dl>
-        <dt>Cliente</dt><dd>${esc(pedido.cliente_nome||(cliente?cliente.nome:''))} (cód. ${esc(pedido.codigo_cliente)})</dd>
+        <dt>Cliente</dt><dd>${esc((cliente?cliente.nome:'')||pedido.cliente_nome||'')} (cód. ${esc(pedido.codigo_cliente)})</dd>
         <dt>Endereço</dt><dd>${cliente? esc([cliente.rua,cliente.numero,cliente.bairro,cliente.cidade,cliente.estado].filter(Boolean).join(', ')) : '—'}</dd>
         <dt>CPF</dt><dd>${cliente? esc(cliente.cpf_cnpj)||'—' : '—'}</dd>
         <dt>Forma de pagamento</dt><dd>${esc(pedido.forma_pagamento)} &middot; ${esc(CONDICOES[(pedido.condicao_pgto||1)-1]||'')}</dd>
@@ -2086,7 +2086,9 @@ function duplicarPedido(pedido){
     parcelas_qtd: it.parcelas_qtd||1, valor_parcela: it.valor_parcela||0,
   }));
   if(pedidoUI.novoItens.length===0) pedidoUI.novoItens.push({ produtoLabel:'', codigo_produto:'', descricao:'', uni:1, valor_unit:0, parcelas_qtd:1, valor_parcela:0 });
-  pedidoUI.prefillCliente = pedido.cliente_nome ? (pedido.cliente_nome+' (cód. '+pedido.codigo_cliente+')') : '';
+  const clienteDup = S.clientes.get(pedido.codigo_cliente);
+  const nomeDup = (clienteDup?clienteDup.nome:'') || pedido.cliente_nome || '';
+  pedidoUI.prefillCliente = nomeDup ? (nomeDup+' (cód. '+pedido.codigo_cliente+')') : '';
   pedidoUI.prefillForma = pedido.forma_pagamento || null;
   pedidoUI.prefillCondicao = pedido.condicao_pgto || null;
   toast('Pedido duplicado — revise os dados e clique em "Emitir pedido".', 'ok');
@@ -2534,7 +2536,7 @@ function topClientes(limit){
     const total = (p.itens||[]).reduce((s,it)=> s+(it.valor_venda||0)*(it.uni||1), 0);
     const key = p.codigo_cliente || p.cliente_nome;
     if(!key) return;
-    if(!totals.has(key)) totals.set(key, { nome: p.cliente_nome || (S.clientes.get(p.codigo_cliente)||{}).nome || '—', total:0, pedidos:0 });
+    if(!totals.has(key)) totals.set(key, { nome: (S.clientes.get(p.codigo_cliente)||{}).nome || p.cliente_nome || '—', total:0, pedidos:0 });
     const t = totals.get(key); t.total += total; t.pedidos++;
   });
   return Array.from(totals.values()).sort((a,b)=> b.total-a.total).slice(0, limit);
@@ -2776,7 +2778,7 @@ function exportarPedidosCSV(){
     (p.itens||[]).forEach(it=>{
       (it.parcelas||[]).forEach(parc=>{
         linhas.push({
-          numero: p.numero, data_compra: p.data_compra, cliente: p.cliente_nome, codigo_cliente: p.codigo_cliente,
+          numero: p.numero, data_compra: p.data_compra, cliente: (S.clientes.get(p.codigo_cliente)||{}).nome || p.cliente_nome || '', codigo_cliente: p.codigo_cliente,
           forma_pagamento: p.forma_pagamento, produto: it.descricao, codigo_produto: it.codigo_produto,
           uni: it.uni, valor_parcela: it.valor_parcela, parcelaLabel: parc.n+'/'+it.parcelas_qtd,
           data_pgto: parc.data_pgto, recebimento: parc.recebimento,
