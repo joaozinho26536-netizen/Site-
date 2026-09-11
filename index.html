@@ -752,8 +752,15 @@ function parcelaVencimentoEstimado(pedido, n){
 }
 // Data da próxima parcela ainda não paga de um pedido (a mais próxima entre todos
 // os itens) — usada na tela de Pedidos para a coluna "Próximo pagamento" e para
-// agrupar os pedidos em pastas por mês. Pedido quitado retorna null.
+// agrupar os pedidos em pastas por mês/dia. Pedido quitado retorna null.
+// `proximo_pagamento_override` (definido na ficha, via o seletor de data) tem
+// prioridade sobre a estimativa automática — é o que permite mover manualmente
+// um pedido de pasta.
 function proximoPagamentoPedido(pedido){
+  if(pedido && pedido.proximo_pagamento_override){
+    const d = new Date(pedido.proximo_pagamento_override+'T00:00:00');
+    if(!isNaN(d.getTime())) return d;
+  }
   let proximo = null;
   (pedido.itens||[]).forEach(it=>{
     (it.parcelas||[]).forEach(parc=>{
@@ -764,6 +771,80 @@ function proximoPagamentoPedido(pedido){
   });
   return proximo;
 }
+
+// Pop-up de seleção de data por botões (ano / mês / dia), reaproveitado onde uma
+// data precisa ser escolhida sem digitar — hoje, para definir manualmente o
+// "Próximo pagamento" de um pedido na ficha. `dataAtual` (Date ou null) só serve
+// para pré-marcar o ano/mês/dia já selecionados; `onEscolher(isoDate)` é chamado
+// com a data escolhida (string "YYYY-MM-DD") assim que o dia é clicado.
+function abrirSeletorData(dataAtual, onEscolher){
+  const hoje = new Date();
+  const state = {
+    ano: dataAtual ? dataAtual.getFullYear() : hoje.getFullYear(),
+    mes: dataAtual ? dataAtual.getMonth()+1 : null,
+  };
+  const back = document.createElement('div');
+  back.className = 'modal-backdrop';
+  back.innerHTML = `
+    <div class="modal" style="max-width:420px;">
+      <div class="modal-head"><h3>Selecionar data</h3><button class="iconbtn" id="sd-close">&times;</button></div>
+      <div class="modal-body" id="sd-body"></div>
+    </div>`;
+  document.body.appendChild(back);
+  const close = ()=> back.remove();
+  back.querySelector('#sd-close').onclick = close;
+  back.onclick = (e)=>{ if(e.target===back) close(); };
+
+  function renderBody(){
+    const body = back.querySelector('#sd-body');
+    body.innerHTML = `
+      <div class="so-title" style="margin-bottom:8px;">Ano</div>
+      <div style="display:flex; align-items:center; gap:10px; margin-bottom:16px;">
+        <button class="iconbtn" id="sd-ano-prev" title="Ano anterior">${ICONS.back}</button>
+        <strong style="min-width:52px; text-align:center; font-size:15px;">${state.ano}</strong>
+        <button class="iconbtn" id="sd-ano-next" title="Próximo ano" style="transform:scaleX(-1);">${ICONS.back}</button>
+      </div>
+      <div class="so-title" style="margin-bottom:8px;">Mês</div>
+      <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px;">
+        ${MESES_LABEL.map((m,i)=>{
+          const mes = i+1;
+          return `<button type="button" class="btn ${state.mes===mes?'primary':''}" data-mes="${mes}">${m}</button>`;
+        }).join('')}
+      </div>
+      <div id="sd-dias"></div>
+    `;
+    body.querySelector('#sd-ano-prev').onclick = ()=>{ state.ano--; renderBody(); };
+    body.querySelector('#sd-ano-next').onclick = ()=>{ state.ano++; renderBody(); };
+    body.querySelectorAll('[data-mes]').forEach(btn=>{
+      btn.onclick = ()=>{ state.mes = parseInt(btn.dataset.mes,10); renderBody(); };
+    });
+    renderDias();
+  }
+  function renderDias(){
+    const wrap = back.querySelector('#sd-dias');
+    if(!wrap) return;
+    if(!state.mes){ wrap.innerHTML = ''; return; }
+    const ultimoDia = new Date(state.ano, state.mes, 0).getDate();
+    const dias = Array.from({length: ultimoDia}, (_,i)=>i+1);
+    const diaSelecionado = (dataAtual && dataAtual.getFullYear()===state.ano && (dataAtual.getMonth()+1)===state.mes) ? dataAtual.getDate() : null;
+    wrap.innerHTML = `
+      <div class="so-title" style="margin-bottom:8px;">Dia</div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(42px,1fr)); gap:6px;">
+        ${dias.map(d=>`<button type="button" class="btn ${diaSelecionado===d?'primary':''}" data-dia="${d}" style="padding:6px 2px; font-size:12px;">${d}</button>`).join('')}
+      </div>
+    `;
+    wrap.querySelectorAll('[data-dia]').forEach(btn=>{
+      btn.onclick = ()=>{
+        const dia = parseInt(btn.dataset.dia,10);
+        const iso = state.ano+'-'+String(state.mes).padStart(2,'0')+'-'+String(dia).padStart(2,'0');
+        close();
+        onEscolher(iso);
+      };
+    });
+  }
+  renderBody();
+}
+
 function listaContasAReceber(){
   const hoje = new Date(); hoje.setHours(0,0,0,0);
   const linhas = [];
@@ -1902,6 +1983,7 @@ function renderFichaHTML(pedido){
         <dt>Endereço</dt><dd>${cliente? esc([cliente.rua,cliente.numero,cliente.bairro,cliente.cidade,cliente.estado].filter(Boolean).join(', ')) : '—'}</dd>
         <dt>CPF</dt><dd>${cliente? esc(cliente.cpf_cnpj)||'—' : '—'}</dd>
         <dt>Forma de pagamento</dt><dd>${esc(pedido.forma_pagamento)} &middot; ${esc(CONDICOES[(pedido.condicao_pgto||1)-1]||'')}</dd>
+        <dt>Próximo pagamento</dt><dd>${(()=>{ const prox = proximoPagamentoPedido(pedido); return prox ? fmtDate(prox) : '—'; })()}</dd>
       </dl>
       <div class="table-wrap" style="margin-top:16px;">
         <table class="data">
@@ -2011,6 +2093,11 @@ function openEditarFicha(pedido, container){
             <select id="ef-forma">${FORMAS_PGTO.map(f=>`<option ${f===draft.forma_pagamento?'selected':''}>${esc(f)}</option>`).join('')}</select>
           </div>
           <div class="field"><label>Condição (nº de parcelas)</label><input id="ef-condicao" type="number" min="1" value="${draft.condicao_pgto||1}"></div>
+          <div class="field">
+            <label>Próximo pagamento</label>
+            <button type="button" class="btn" id="ef-proximo-btn" style="width:100%; justify-content:flex-start;"></button>
+            <div class="hint" id="ef-proximo-hint"></div>
+          </div>
         </div>
         <div id="ef-itens"></div>
         <button class="btn" id="ef-add-item" style="margin-top:6px;">${ICONS.plus} Adicionar produto</button>
@@ -2030,6 +2117,37 @@ function openEditarFicha(pedido, container){
     const totalRecebido = draft.itens.reduce((s,it)=> s + (it.parcelas||[]).reduce((s2,p)=> s2+(Number(p.recebimento)||0), 0), 0);
     back.querySelector('#ef-resumo').innerHTML = `Total: <strong>${fmtBRL(totalGeral)}</strong> &middot; Recebido: <strong>${fmtBRL(totalRecebido)}</strong> &middot; Saldo: <strong>${fmtBRL(Math.max(totalGeral-totalRecebido,0))}</strong>`;
   }
+
+  // Mostra a data de "Próximo pagamento" do rascunho (manual, se definida, senão a
+  // estimativa automática) e permite trocá-la pelo pop-up de ano/mês/dia — ao
+  // escolher, o pedido passa a usar essa data e a pasta na tela de Pedidos
+  // reflete a mudança automaticamente (a pasta é calculada a partir do próprio
+  // campo salvo, não há nada extra para atualizar).
+  function atualizarProximoBtn(){
+    const btn = back.querySelector('#ef-proximo-btn');
+    const hint = back.querySelector('#ef-proximo-hint');
+    if(!btn) return;
+    const prox = proximoPagamentoPedido(draft);
+    btn.innerHTML = ICONS.edit + ' ' + (prox ? fmtDate(prox) : 'Selecionar data');
+    if(hint){
+      if(draft.proximo_pagamento_override){
+        hint.textContent = 'Definido manualmente — clique para voltar ao automático';
+        hint.style.cursor = 'pointer';
+        hint.onclick = ()=>{ draft.proximo_pagamento_override = null; atualizarProximoBtn(); };
+      }else{
+        hint.textContent = '';
+        hint.style.cursor = '';
+        hint.onclick = null;
+      }
+    }
+  }
+  back.querySelector('#ef-proximo-btn').onclick = ()=>{
+    abrirSeletorData(proximoPagamentoPedido(draft), (iso)=>{
+      draft.proximo_pagamento_override = iso;
+      atualizarProximoBtn();
+    });
+  };
+  back.querySelector('#ef-data').addEventListener('input', (e)=>{ draft.data_compra = e.target.value; atualizarProximoBtn(); });
 
   function recomputeSaldos(itIdx){
     const it = draft.itens[itIdx];
@@ -2093,9 +2211,13 @@ function openEditarFicha(pedido, container){
       card.outerHTML = renderItemCard(itIdx);
       wireItemCard(itIdx);
       recomputeSaldos(itIdx);
+      atualizarProximoBtn();
     };
     card.querySelectorAll('.ef-datapgto').forEach(inp=>{
-      inp.onchange = (e)=>{ draft.itens[+e.target.dataset.it].parcelas[+e.target.dataset.p].data_pgto = e.target.value || null; };
+      inp.onchange = (e)=>{
+        draft.itens[+e.target.dataset.it].parcelas[+e.target.dataset.p].data_pgto = e.target.value || null;
+        atualizarProximoBtn();
+      };
     });
     card.querySelectorAll('.ef-recebimento').forEach(inp=>{
       maskMoneyInput(inp);
@@ -2125,6 +2247,7 @@ function openEditarFicha(pedido, container){
     back.querySelector('#ef-itens').innerHTML = draft.itens.map((it,itIdx)=> renderItemCard(itIdx)).join('');
     draft.itens.forEach((it,itIdx)=>{ wireItemCard(itIdx); recomputeSaldos(itIdx); });
     renderResumo();
+    atualizarProximoBtn();
   }
 
   renderAllItens();
