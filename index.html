@@ -1441,8 +1441,9 @@ function openProdutoModal(existing){
 const pedidoUI = {
   buscaNumero:'', novoItens: [], listaFiltro:'', listaPage:1, sortKey:null, sortDir:'desc',
   prefillCliente:null, prefillForma:null, prefillCondicao:null,
-  // Pasta por mês do "próximo pagamento": filtroMes null = todos os meses do ano selecionado.
-  filtroMes: null, filtroAno: new Date().getFullYear(),
+  // Pasta por mês/dia do "próximo pagamento": filtroMes null = todos os meses do ano
+  // selecionado; filtroDia só se aplica dentro de um mês escolhido.
+  filtroMes: null, filtroDia: null, filtroAno: new Date().getFullYear(),
 };
 const PED_LISTA_NUMERIC_KEYS = new Set(['numero','total','proximo']);
 const PED_LISTA_PAGESIZE = 20;
@@ -1456,6 +1457,19 @@ function contarPedidosPorMes(ano){
     if(prox && prox.getFullYear()===ano){
       const m = prox.getMonth()+1;
       counts[m] = (counts[m]||0)+1;
+    }
+  });
+  return counts;
+}
+// Mesma ideia, mas dentro de um mês/ano específico: conta quantos pedidos têm o
+// "próximo pagamento" em cada dia (chave 1-31) — alimenta as pastas de dia.
+function contarPedidosPorDia(ano, mes){
+  const counts = {};
+  S.pedidos.forEach(p=>{
+    const prox = proximoPagamentoPedido(p);
+    if(prox && prox.getFullYear()===ano && (prox.getMonth()+1)===mes){
+      const d = prox.getDate();
+      counts[d] = (counts[d]||0)+1;
     }
   });
   return counts;
@@ -1516,7 +1530,7 @@ function renderPedidosLista(el){
     </div>
 
     <div class="card" style="margin-bottom:20px;">
-      <div class="card-head"><h2>Pastas por mês &middot; próximo pagamento</h2></div>
+      <div class="card-head"><h2>Pastas por mês e dia &middot; próximo pagamento</h2></div>
       <div class="card-body" id="ped-folder-nav"></div>
     </div>
 
@@ -1535,6 +1549,11 @@ function renderPedidosLista(el){
     const counts = contarPedidosPorMes(pedidoUI.filtroAno);
     const totalAno = Object.values(counts).reduce((s,n)=>s+n,0);
     wrap.innerHTML = `
+      <div class="field" style="max-width:220px; margin-bottom:16px;">
+        <label>Ir direto para uma data</label>
+        <input type="date" id="ped-busca-data">
+        <div class="hint">Mostra todos os pedidos com pagamento previsto nesse dia.</div>
+      </div>
       <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px;">
         <button class="iconbtn" id="ped-ano-prev" title="Ano anterior">${ICONS.back}</button>
         <strong style="min-width:52px; text-align:center; font-size:15px;">${pedidoUI.filtroAno}</strong>
@@ -1547,14 +1566,55 @@ function renderPedidosLista(el){
           return `<button class="btn ${pedidoUI.filtroMes===mes?'primary':''}" data-mes="${mes}">${m} <span style="opacity:.75;">(${counts[mes]||0})</span></button>`;
         }).join('')}
       </div>
+      <div id="ped-dia-nav" style="margin-top:18px;"></div>
     `;
-    wrap.querySelector('#ped-ano-prev').onclick = ()=>{ pedidoUI.filtroAno--; pedidoUI.listaPage=1; renderFolderNav(); renderListaPedidosBody(); };
-    wrap.querySelector('#ped-ano-next').onclick = ()=>{ pedidoUI.filtroAno++; pedidoUI.listaPage=1; renderFolderNav(); renderListaPedidosBody(); };
+    const buscaData = wrap.querySelector('#ped-busca-data');
+    buscaData.onchange = (e)=>{
+      if(!e.target.value) return;
+      const d = new Date(e.target.value+'T00:00:00');
+      if(isNaN(d.getTime())) return;
+      pedidoUI.filtroAno = d.getFullYear();
+      pedidoUI.filtroMes = d.getMonth()+1;
+      pedidoUI.filtroDia = d.getDate();
+      pedidoUI.listaPage = 1;
+      renderFolderNav();
+      renderListaPedidosBody();
+    };
+    wrap.querySelector('#ped-ano-prev').onclick = ()=>{ pedidoUI.filtroAno--; pedidoUI.filtroDia=null; pedidoUI.listaPage=1; renderFolderNav(); renderListaPedidosBody(); };
+    wrap.querySelector('#ped-ano-next').onclick = ()=>{ pedidoUI.filtroAno++; pedidoUI.filtroDia=null; pedidoUI.listaPage=1; renderFolderNav(); renderListaPedidosBody(); };
     wrap.querySelectorAll('[data-mes]').forEach(btn=>{
       btn.onclick = ()=>{
         pedidoUI.filtroMes = btn.dataset.mes ? parseInt(btn.dataset.mes,10) : null;
+        pedidoUI.filtroDia = null;
         pedidoUI.listaPage = 1;
         renderFolderNav();
+        renderListaPedidosBody();
+      };
+    });
+    renderDiaNav();
+  }
+
+  // Pastas por dia (1 até o último dia do mês selecionado) — só aparecem depois de
+  // escolher um mês acima, igual à navegação por mês, mas um nível mais fundo.
+  function renderDiaNav(){
+    const wrap = document.getElementById('ped-dia-nav');
+    if(!wrap) return;
+    if(!pedidoUI.filtroMes){ wrap.innerHTML = ''; return; }
+    const counts = contarPedidosPorDia(pedidoUI.filtroAno, pedidoUI.filtroMes);
+    const ultimoDia = new Date(pedidoUI.filtroAno, pedidoUI.filtroMes, 0).getDate();
+    const dias = Array.from({length: ultimoDia}, (_,i)=>i+1);
+    wrap.innerHTML = `
+      <div class="so-title" style="margin-bottom:8px;">Dias de ${MESES_LABEL[pedidoUI.filtroMes-1]}/${pedidoUI.filtroAno}</div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(54px,1fr)); gap:6px; max-width:600px;">
+        <button class="btn ${pedidoUI.filtroDia===null?'primary':''}" data-dia="" style="padding:6px 4px; font-size:12px;">Todos</button>
+        ${dias.map(d=>`<button class="btn ${pedidoUI.filtroDia===d?'primary':''}" data-dia="${d}" style="padding:6px 4px; font-size:12px; ${counts[d]?'':'opacity:.5;'}">${d}${counts[d]?`<br><span style="font-size:10px;">(${counts[d]})</span>`:''}</button>`).join('')}
+      </div>
+    `;
+    wrap.querySelectorAll('[data-dia]').forEach(btn=>{
+      btn.onclick = ()=>{
+        pedidoUI.filtroDia = btn.dataset.dia ? parseInt(btn.dataset.dia,10) : null;
+        pedidoUI.listaPage = 1;
+        renderDiaNav();
         renderListaPedidosBody();
       };
     });
@@ -1602,10 +1662,14 @@ function renderPedidosLista(el){
       const proximoPagamento = proximoPagamentoPedido(p);
       return { p, totalGeral, quitado, clienteNome, proximoPagamento };
     });
-    // Pasta por mês: mantém só os pedidos cujo próximo pagamento cai no mês/ano
-    // selecionado na navegação acima (filtroMes null = todos os meses do ano).
+    // Pasta por mês/dia: mantém só os pedidos cujo próximo pagamento cai no mês/ano
+    // (e, se escolhido, no dia) selecionado na navegação acima (filtroMes null =
+    // todos os meses do ano; filtroDia só se aplica dentro de um mês escolhido).
     if(pedidoUI.filtroMes){
       enriched = enriched.filter(row=> row.proximoPagamento && row.proximoPagamento.getFullYear()===pedidoUI.filtroAno && (row.proximoPagamento.getMonth()+1)===pedidoUI.filtroMes);
+      if(pedidoUI.filtroDia){
+        enriched = enriched.filter(row=> row.proximoPagamento.getDate()===pedidoUI.filtroDia);
+      }
     }
     enriched = sortRows(enriched, pedidoUI, (row,key)=>{
       if(key==='numero') return row.p.numero;
@@ -1639,7 +1703,11 @@ function renderPedidosLista(el){
                 <td><span class="badge ${quitado?'ok':'pending'}">${quitado?'Quitado':'Em aberto'}</span></td>
                 <td style="text-align:right; color:var(--muted);">${ICONS.external}</td>
               </tr>`;
-            }).join('') : `<tr><td colspan="7"><div class="empty">${ICONS.file}<div>Nenhum pedido encontrado ${pedidoUI.filtroMes?('em '+MESES_LABEL[pedidoUI.filtroMes-1]+'/'+pedidoUI.filtroAno):''}.</div></div></td></tr>`}
+            }).join('') : `<tr><td colspan="7"><div class="empty">${ICONS.file}<div>Nenhum pedido encontrado${
+              pedidoUI.filtroDia ? (' em '+pedidoUI.filtroDia+'/'+pedidoUI.filtroMes+'/'+pedidoUI.filtroAno)
+              : pedidoUI.filtroMes ? (' em '+MESES_LABEL[pedidoUI.filtroMes-1]+'/'+pedidoUI.filtroAno)
+              : ''
+            }.</div></div></td></tr>`}
           </tbody>
         </table>
       </div>
