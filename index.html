@@ -456,7 +456,7 @@
 </div>
 <div class="toast-wrap" id="toasts"></div>
 
-
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
 <script>
 /* ============================================================
    RAMOS DE OLIVEIRA — sistema de cadastro
@@ -483,6 +483,7 @@ const ICONS = {
   upload:'<svg viewBox="0 0 20 20" fill="currentColor"><path d="M10 2.6 4.8 8.4h3.1V14h4.2V8.4h3.1L10 2.6Z"/><path d="M2.8 16h14.4v1.6H2.8V16Z"/></svg>',
   external:'<svg viewBox="0 0 20 20" fill="currentColor"><path d="M8 3H3v14h14v-5h-2v3H5V5h3V3Z"/><path d="M11 3h6v6h-2V6.4l-7.3 7.3-1.4-1.4L13.6 5H11V3Z"/></svg>',
   sortBars:'<svg viewBox="0 0 20 20" fill="currentColor"><rect x="1.6" y="3.8" width="16.8" height="2.3" rx="1.15"/><rect x="1.6" y="8.85" width="11.4" height="2.3" rx="1.15"/><rect x="1.6" y="13.9" width="6" height="2.3" rx="1.15"/></svg>',
+  graph:'<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8.7 6.1 5.6 13.6M11.3 6.1l3.1 7.5M6.6 15.6h6.8"/><circle cx="10" cy="4.2" r="2.3" fill="currentColor" stroke="none"/><circle cx="4.2" cy="15.6" r="2.3" fill="currentColor" stroke="none"/><circle cx="15.8" cy="15.6" r="2.3" fill="currentColor" stroke="none"/></svg>',
 };
 
 /* ---------------- state ---------------- */
@@ -615,6 +616,7 @@ const NAV = [
     {id:'pedido-novo', label:'Criação de pedidos'},
   ]},
   {id:'financeiro', label:'Financeiro', icon:'coins'},
+  {id:'grafo', label:'Grafo de Dados', icon:'graph'},
   {id:'backup', label:'Backup', icon:'upload'},
 ];
 function renderNav(active){
@@ -725,6 +727,9 @@ function setTitle(title, crumb, actionsHTML){
 }
 
 function render(){
+  // O grafo de dados mantém assinaturas de tempo real (onSnapshot) enquanto
+  // está na tela — encerra ao navegar para qualquer outra rota.
+  if(S.route !== 'grafo') grafoPararTempoReal();
   const el = document.getElementById('content');
   switch(S.route){
     case 'clientes': return renderClientes(el);
@@ -732,6 +737,7 @@ function render(){
     case 'pedido': return renderPedidosLista(el);
     case 'pedido-novo': return renderPedidoNovo(el);
     case 'financeiro': return renderFinanceiro(el);
+    case 'grafo': return renderGrafo(el);
     case 'backup': return renderBackup(el);
     default: return renderHome(el);
   }
@@ -919,6 +925,319 @@ function contasAReceberResumo(){
   const totalReceber = linhas.reduce((s,l)=> s+l.valor, 0);
   const vencidasLinhas = linhas.filter(l=>l.vencida);
   return { totalReceber, vencidas: { count: vencidasLinhas.length, total: vencidasLinhas.reduce((s,l)=>s+l.valor,0) } };
+}
+
+/* ================= GRAFO DE DADOS (mapa ao vivo) =================
+   Monta uma rede visual clientes—pedidos—produtos a partir dos dados reais
+   (não do código) e mantém onSnapshot ligado nas três coleções enquanto essa
+   tela está aberta, para refletir em tempo real o que outros usuários mudam. */
+const grafoUI = { periodo:90, busca:'', selecionado:null };
+let grafoSimulation = null;
+let grafoUnsub = null;
+const grafoPosCache = new Map();
+const GRAFO_COR = { cliente:'#3c66c4', produto:'#9C6B08', pedido:'#515C27' };
+const GRAFO_LABEL_TIPO = { cliente:'Cliente', produto:'Produto', pedido:'Pedido' };
+
+function grafoPararTempoReal(){
+  if(grafoUnsub){ grafoUnsub(); grafoUnsub = null; }
+}
+
+function grafoFiltrarPedidos(){
+  const termo = grafoUI.busca.trim().toLowerCase();
+  let limite = null;
+  if(grafoUI.periodo > 0){
+    limite = new Date(); limite.setHours(0,0,0,0); limite.setDate(limite.getDate() - grafoUI.periodo);
+  }
+  const out = [];
+  S.pedidos.forEach(p=>{
+    if(limite){
+      const dc = p.data_compra ? new Date(p.data_compra+'T00:00:00') : null;
+      if(!dc || isNaN(dc.getTime()) || dc < limite) return;
+    }
+    if(termo){
+      const cliente = S.clientes.get(p.codigo_cliente);
+      const nomeCliente = ((cliente&&cliente.nome) || p.cliente_nome || '').toLowerCase();
+      const numMatch = String(p.numero).toLowerCase().includes(termo);
+      const cliMatch = nomeCliente.includes(termo);
+      const prodMatch = (p.itens||[]).some(it=>{
+        const prod = S.produtos.get(it.codigo_produto);
+        return (it.descricao || (prod&&prod.descricao) || '').toLowerCase().includes(termo);
+      });
+      if(!numMatch && !cliMatch && !prodMatch) return;
+    }
+    out.push(p);
+  });
+  return out;
+}
+
+// Monta nós (cliente/produto/pedido) e ligações a partir dos pedidos filtrados —
+// cada chamada reconstrói do zero a partir de S.clientes/S.produtos/S.pedidos,
+// que são os mesmos Maps atualizados pelas assinaturas em tempo real.
+function buildGrafoData(){
+  const pedidos = grafoFiltrarPedidos();
+  const nodeMap = new Map();
+  const linkSet = new Set();
+  const links = [];
+  function no(id, tipo, base){
+    let n = nodeMap.get(id);
+    if(!n){ n = Object.assign({ id, tipo, valor:0, pedidosCount:0 }, base); nodeMap.set(id, n); }
+    return n;
+  }
+  function ligar(a, b, tipo){
+    const key = a+'>'+b;
+    if(linkSet.has(key)) return;
+    linkSet.add(key);
+    links.push({ source:a, target:b, tipo });
+  }
+  pedidos.forEach(p=>{
+    const pid = 'ped_'+p.numero;
+    const totalPedido = (p.itens||[]).reduce((s,it)=> s + (Number(it.valor_venda)||0)*(Number(it.uni)||1), 0);
+    const pedidoNode = no(pid, 'pedido', { numero:p.numero, data:p.data_compra, label:'Pedido #'+p.numero });
+    pedidoNode.valor = totalPedido;
+
+    const cliente = S.clientes.get(p.codigo_cliente);
+    const cid = 'cli_'+(p.codigo_cliente || ('sc_'+p.numero));
+    const clienteNode = no(cid, 'cliente', { codigo:p.codigo_cliente, label:(cliente&&cliente.nome) || p.cliente_nome || 'Cliente não identificado' });
+    clienteNode.valor += totalPedido;
+    clienteNode.pedidosCount++;
+    ligar(cid, pid, 'compra');
+
+    (p.itens||[]).forEach(it=>{
+      if(!it.codigo_produto) return;
+      const prod = S.produtos.get(it.codigo_produto);
+      const prid = 'prod_'+it.codigo_produto;
+      const prodNode = no(prid, 'produto', { codigo:it.codigo_produto, label: it.descricao || (prod&&prod.descricao) || ('Produto '+it.codigo_produto) });
+      prodNode.valor += (Number(it.valor_venda)||0)*(Number(it.uni)||1);
+      prodNode.pedidosCount++;
+      ligar(pid, prid, 'item');
+    });
+  });
+  return { nodes: Array.from(nodeMap.values()), links };
+}
+
+function grafoAtualizarBadge(estado){
+  const badge = document.getElementById('grafo-live-badge');
+  if(!badge) return;
+  if(estado==='ao-vivo'){
+    badge.className = 'badge ok';
+    badge.innerHTML = '<span style="width:7px;height:7px;border-radius:50%;background:var(--success);display:inline-block;"></span> ao vivo';
+  } else if(estado==='erro'){
+    badge.className = 'badge alert';
+    badge.innerHTML = '<span style="width:7px;height:7px;border-radius:50%;background:var(--danger);display:inline-block;"></span> sem conexão em tempo real';
+  } else {
+    badge.className = 'badge neutral';
+    badge.innerHTML = '<span style="width:7px;height:7px;border-radius:50%;background:var(--muted);display:inline-block;"></span> conectando…';
+  }
+}
+
+// Assina onSnapshot nas três coleções — cada mudança de qualquer usuário atualiza
+// os Maps em memória (S.clientes/S.produtos/S.pedidos) e redesenha o grafo, sem
+// precisar recarregar a página. Encerrada por grafoPararTempoReal() ao sair da tela.
+function grafoAssinarTempoReal(){
+  if(!S.db || grafoUnsub) return;
+  const unsubs = [];
+  let pendentes = 3;
+  function pronto(){ pendentes = Math.max(0, pendentes-1); if(pendentes===0) grafoAtualizarBadge('ao-vivo'); }
+  function refazer(){
+    if(S.route !== 'grafo') return;
+    if(!document.getElementById('grafo-canvas-wrap')) return;
+    const { nodes, links } = buildGrafoData();
+    const emptyBox = document.getElementById('grafo-empty');
+    if(!nodes.length){
+      if(emptyBox) emptyBox.style.display = 'flex';
+      if(grafoSimulation){ grafoSimulation.stop(); grafoSimulation = null; }
+      if(window.d3) d3.select('#grafo-svg').selectAll('*').remove();
+      return;
+    }
+    if(emptyBox) emptyBox.style.display = 'none';
+    grafoDesenhar(nodes, links);
+  }
+  function assinar(colName, map, orderField){
+    return S.db.collection(colName).orderBy(orderField).limit(1000).onSnapshot(snap=>{
+      snap.docChanges().forEach(ch=>{
+        if(ch.type==='removed') map.delete(ch.doc.id);
+        else map.set(ch.doc.id, ch.doc.data());
+      });
+      pronto(); refazer();
+    }, err=>{ console.error(err); grafoAtualizarBadge('erro'); });
+  }
+  unsubs.push(assinar('clientes', S.clientes, 'codigo'));
+  unsubs.push(assinar('produtos', S.produtos, 'codigo'));
+  unsubs.push(assinar('pedidos', S.pedidos, 'numero'));
+  grafoUnsub = ()=> unsubs.forEach(u=>u());
+}
+
+function grafoDesenhar(nodes, links){
+  const svgEl = document.getElementById('grafo-svg');
+  if(!svgEl || !window.d3) return;
+  const width = svgEl.clientWidth || 800;
+  const height = 560;
+  svgEl.setAttribute('viewBox', '0 0 '+width+' '+height);
+
+  nodes.forEach(n=>{
+    const cache = grafoPosCache.get(n.id);
+    if(cache){ n.x = cache.x; n.y = cache.y; }
+  });
+
+  if(grafoSimulation) grafoSimulation.stop();
+
+  const svg = d3.select(svgEl);
+  svg.selectAll('*').remove();
+  const g = svg.append('g');
+  svg.call(d3.zoom().scaleExtent([0.3,3]).on('zoom', ev=> g.attr('transform', ev.transform)));
+
+  const linkSel = g.append('g').attr('stroke','var(--border)').attr('stroke-opacity',0.7)
+    .selectAll('line').data(links).join('line').attr('stroke-width',1.2);
+
+  const nodeSel = g.append('g').selectAll('g').data(nodes, d=>d.id).join('g')
+    .attr('cursor','pointer')
+    .call(d3.drag()
+      .on('start', (ev,d)=>{ if(!ev.active) grafoSimulation.alphaTarget(0.25).restart(); d.fx=d.x; d.fy=d.y; })
+      .on('drag', (ev,d)=>{ d.fx=ev.x; d.fy=ev.y; })
+      .on('end', (ev,d)=>{ if(!ev.active) grafoSimulation.alphaTarget(0); d.fx=null; d.fy=null; }));
+
+  nodeSel.append('circle')
+    .attr('r', d=> d.tipo==='pedido' ? 6+Math.min(10, Math.sqrt(d.valor||0)/40) : 7+Math.min(10, (d.pedidosCount||0)*1.4))
+    .attr('fill', d=> GRAFO_COR[d.tipo])
+    .attr('stroke', '#fff').attr('stroke-width',1.4);
+
+  nodeSel.append('text')
+    .text(d=> d.label.length>18 ? d.label.slice(0,17)+'…' : d.label)
+    .attr('x',11).attr('y',4)
+    .attr('font-size',10.5)
+    .attr('fill','var(--ink)')
+    .attr('paint-order','stroke').attr('stroke','var(--surface)').attr('stroke-width',3);
+
+  nodeSel.append('title').text(d=> GRAFO_LABEL_TIPO[d.tipo]+': '+d.label);
+  nodeSel.on('click', (ev,d)=>{ grafoUI.selecionado = { tipo:d.tipo, id:d.id }; grafoMostrarDetalhe(d); });
+
+  grafoSimulation = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(links).id(d=>d.id).distance(70).strength(0.5))
+    .force('charge', d3.forceManyBody().strength(-160))
+    .force('center', d3.forceCenter(width/2, height/2))
+    .force('collide', d3.forceCollide(18))
+    .on('tick', ()=>{
+      linkSel.attr('x1', d=>d.source.x).attr('y1', d=>d.source.y).attr('x2', d=>d.target.x).attr('y2', d=>d.target.y);
+      nodeSel.attr('transform', d=>{ grafoPosCache.set(d.id, {x:d.x,y:d.y}); return 'translate('+d.x+','+d.y+')'; });
+    });
+
+  if(grafoUI.selecionado){
+    const found = nodes.find(n=> n.id===grafoUI.selecionado.id);
+    const box = document.getElementById('grafo-detalhe');
+    if(found) grafoMostrarDetalhe(found);
+    else if(box) box.innerHTML = '<div style="color:var(--muted);">Clique em um nó para ver os detalhes.</div>';
+  }
+}
+
+function grafoMostrarDetalhe(d){
+  const box = document.getElementById('grafo-detalhe');
+  if(!box) return;
+  if(d.tipo==='cliente'){
+    const c = S.clientes.get(d.codigo) || {};
+    box.innerHTML = `
+      <div class="badge neutral" style="margin-bottom:10px;">${GRAFO_LABEL_TIPO.cliente}</div>
+      <div style="font-weight:700; font-size:14.5px; margin-bottom:6px;">${esc(d.label)}</div>
+      <div style="color:var(--muted); margin-bottom:4px;">Cód. ${esc(d.codigo||'—')}</div>
+      ${c.telefone?`<div style="margin-bottom:4px;">${esc(c.telefone)}</div>`:''}
+      ${c.cidade?`<div style="margin-bottom:4px;">${esc(c.cidade)}${c.uf?'/'+esc(c.uf):''}</div>`:''}
+      <div style="margin:10px 0; padding-top:10px; border-top:1px solid var(--border);">
+        <div style="color:var(--muted); font-size:11.5px; text-transform:uppercase;">Total em pedidos (no filtro)</div>
+        <div style="font-weight:700; font-size:16px;">${fmtBRL(d.valor)}</div>
+        <div style="color:var(--muted); font-size:12px;">${d.pedidosCount} pedido(s)</div>
+      </div>
+      ${c.codigo?`<button class="btn primary" id="grafo-abrir-cliente" style="width:100%; justify-content:center;">${ICONS.edit} Abrir cadastro</button>`:''}
+    `;
+    const btn = document.getElementById('grafo-abrir-cliente');
+    if(btn) btn.onclick = ()=> openClienteModal(c);
+  } else if(d.tipo==='produto'){
+    const p = S.produtos.get(d.codigo) || {};
+    box.innerHTML = `
+      <div class="badge neutral" style="margin-bottom:10px;">${GRAFO_LABEL_TIPO.produto}</div>
+      <div style="font-weight:700; font-size:14.5px; margin-bottom:6px;">${esc(d.label)}</div>
+      <div style="color:var(--muted); margin-bottom:4px;">Cód. ${esc(d.codigo||'—')}</div>
+      ${estoqueControlado(p)?`<div style="margin-bottom:4px;">Estoque: ${esc(p.estoque)}</div>`:''}
+      <div style="margin:10px 0; padding-top:10px; border-top:1px solid var(--border);">
+        <div style="color:var(--muted); font-size:11.5px; text-transform:uppercase;">Vendido (no filtro)</div>
+        <div style="font-weight:700; font-size:16px;">${fmtBRL(d.valor)}</div>
+        <div style="color:var(--muted); font-size:12px;">em ${d.pedidosCount} pedido(s)</div>
+      </div>
+      ${p.codigo?`<button class="btn primary" id="grafo-abrir-produto" style="width:100%; justify-content:center;">${ICONS.edit} Abrir cadastro</button>`:''}
+    `;
+    const btn = document.getElementById('grafo-abrir-produto');
+    if(btn) btn.onclick = ()=> openProdutoModal(p);
+  } else {
+    box.innerHTML = `
+      <div class="badge neutral" style="margin-bottom:10px;">${GRAFO_LABEL_TIPO.pedido}</div>
+      <div style="font-weight:700; font-size:14.5px; margin-bottom:6px;">${esc(d.label)}</div>
+      <div style="color:var(--muted); margin-bottom:4px;">${fmtDate(d.data)}</div>
+      <div style="margin:10px 0; padding-top:10px; border-top:1px solid var(--border);">
+        <div style="color:var(--muted); font-size:11.5px; text-transform:uppercase;">Valor do pedido</div>
+        <div style="font-weight:700; font-size:16px;">${fmtBRL(d.valor)}</div>
+      </div>
+      <button class="btn primary" id="grafo-abrir-pedido" style="width:100%; justify-content:center;">${ICONS.external} Abrir ficha</button>
+    `;
+    document.getElementById('grafo-abrir-pedido').onclick = ()=>{ location.hash = '#/pedido/'+encodeURIComponent(d.numero); };
+  }
+}
+
+function renderGrafo(el){
+  setTitle('Grafo de Dados', 'Mapa ao vivo de clientes, produtos e pedidos', backHomeBtn());
+  if(!S.dbReady){ el.innerHTML = '<div class="empty">'+ICONS.warn+'<div>Banco de dados indisponível nesta visualização.</div></div>'; return; }
+  if(!S.loaded.clientes || !S.loaded.produtos || !S.loaded.pedidos){
+    el.innerHTML = '<div class="empty"><div class="spinner" style="margin:0 auto 10px;"></div>Carregando dados…</div>'; return;
+  }
+  if(!window.d3){
+    el.innerHTML = '<div class="empty">'+ICONS.warn+'<div>Não foi possível carregar a biblioteca do grafo.</div></div>'; return;
+  }
+
+  el.innerHTML = `
+    <div class="toolbar">
+      <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+        <div class="searchbar" style="max-width:280px;">${ICONS.search}<input id="grafo-busca" placeholder="Buscar cliente, produto ou nº do pedido…" value="${esc(grafoUI.busca)}"></div>
+        <select id="grafo-periodo" style="border:1px solid var(--border); border-radius:8px; padding:8px 10px; font-size:13px; background:var(--surface); color:var(--ink);">
+          <option value="30" ${grafoUI.periodo===30?'selected':''}>Últimos 30 dias</option>
+          <option value="90" ${grafoUI.periodo===90?'selected':''}>Últimos 90 dias</option>
+          <option value="180" ${grafoUI.periodo===180?'selected':''}>Últimos 180 dias</option>
+          <option value="365" ${grafoUI.periodo===365?'selected':''}>Último ano</option>
+          <option value="0" ${grafoUI.periodo===0?'selected':''}>Todos os pedidos</option>
+        </select>
+      </div>
+      <div class="toolbar-right">
+        <span id="grafo-live-badge" class="badge neutral"><span style="width:7px;height:7px;border-radius:50%;background:var(--muted);display:inline-block;"></span> conectando…</span>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <h2>Rede de clientes, produtos e pedidos</h2>
+        <div style="display:flex; gap:14px; font-size:12px; color:var(--muted);">
+          <span><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${GRAFO_COR.cliente};margin-right:5px;"></span>Cliente</span>
+          <span><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${GRAFO_COR.produto};margin-right:5px;"></span>Produto</span>
+          <span><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${GRAFO_COR.pedido};margin-right:5px;"></span>Pedido</span>
+        </div>
+      </div>
+      <div class="card-body" style="padding:0;">
+        <div style="display:flex; flex-wrap:wrap; min-height:560px;">
+          <div id="grafo-canvas-wrap" style="flex:1 1 380px; min-width:0; position:relative; border-right:1px solid var(--border);">
+            <svg id="grafo-svg" style="width:100%; height:560px; display:block; cursor:grab;"></svg>
+            <div id="grafo-empty" class="empty" style="position:absolute; inset:0; display:none; align-items:center; justify-content:center; flex-direction:column;">${ICONS.warn}<div>Nenhum pedido encontrado para esse filtro.</div></div>
+          </div>
+          <div id="grafo-detalhe" style="width:280px; flex:0 0 auto; padding:18px; font-size:13px;">
+            <div style="color:var(--muted);">Clique em um nó para ver os detalhes.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('grafo-busca').oninput = (e)=>{ grafoUI.busca = e.target.value; rerenderKeepingFocus(()=>renderGrafo(el)); };
+  document.getElementById('grafo-periodo').onchange = (e)=>{ grafoUI.periodo = parseInt(e.target.value,10)||0; renderGrafo(el); };
+
+  const { nodes, links } = buildGrafoData();
+  if(!nodes.length) document.getElementById('grafo-empty').style.display = 'flex';
+  else grafoDesenhar(nodes, links);
+
+  grafoAtualizarBadge('conectando');
+  grafoAssinarTempoReal();
 }
 
 /* ================= HOME ================= */
