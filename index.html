@@ -489,6 +489,7 @@ const ICONS = {
 const S = {
   db: null,
   dbReady: false,
+  downloads: null,
   clientes: new Map(),
   produtos: new Map(),
   pedidos: new Map(),
@@ -614,6 +615,7 @@ const NAV = [
     {id:'pedido-novo', label:'Criação de pedidos'},
   ]},
   {id:'financeiro', label:'Financeiro', icon:'coins'},
+  {id:'backup', label:'Backup', icon:'upload'},
 ];
 function renderNav(active){
   const nav = document.getElementById('mainnav');
@@ -652,14 +654,15 @@ async function init(){
   if(mainnav) mainnav.addEventListener('click', (e) => { if(e.target.closest('a')) closeSidebar(); });
   renderNav('home');
   route();
-  let db = null;
+  let db = null, downloads = null;
   try{
     if(window.claude && typeof window.claude.use === 'function'){
-      db = await window.claude.use('db');
+      [db, downloads] = await Promise.all([window.claude.use('db'), window.claude.use('downloads')]);
     }
   }catch(e){ console.error(e); }
   S.db = db;
   S.dbReady = !!db;
+  S.downloads = downloads;
   if(!db){
     toast('Sem conexão com o banco de dados nesta visualização.', 'err');
     render();
@@ -729,6 +732,7 @@ function render(){
     case 'pedido': return renderPedidosLista(el);
     case 'pedido-novo': return renderPedidoNovo(el);
     case 'financeiro': return renderFinanceiro(el);
+    case 'backup': return renderBackup(el);
     default: return renderHome(el);
   }
 }
@@ -814,6 +818,7 @@ function renderHome(el){
           <button class="tile" onclick="location.hash='#/produtos'">${ICONS.box}<span class="lbl">Produtos</span></button>
           <button class="tile" onclick="location.hash='#/pedido'">${ICONS.file}<span class="lbl">Vendas</span></button>
           <button class="tile" onclick="location.hash='#/financeiro'">${ICONS.coins}<span class="lbl">Financeiro</span></button>
+          <button class="tile" onclick="location.hash='#/backup'">${ICONS.upload}<span class="lbl">Backup</span></button>
         </div>
       </div>
     </div>
@@ -1122,6 +1127,39 @@ function produtoSortGetter(p, key){ return key==='lucro' ? (Number(p.valor_venda
 // produtos já cadastrados antes desse recurso existir).
 function estoqueControlado(p){ return p && p.estoque!==null && p.estoque!==undefined && p.estoque!==''; }
 function estoqueBaixo(p){ return estoqueControlado(p) && Number(p.estoque) <= Number(p.estoque_min ?? 5); }
+
+// Baixa automática de estoque: compara as quantidades de cada produto antes/depois
+// de um pedido ser criado, editado ou excluído, e ajusta o estoque pela diferença.
+// Produtos sem estoque controlado (estoque null) ficam de fora, como já previsto
+// pelo controle manual existente.
+function quantidadesPorProduto(itens){
+  const map = new Map();
+  (itens||[]).forEach(it=>{
+    if(!it.codigo_produto) return;
+    map.set(it.codigo_produto, (map.get(it.codigo_produto)||0) + (Number(it.uni)||0));
+  });
+  return map;
+}
+async function ajustarEstoquePedido(itensAntes, itensDepois){
+  if(!S.db) return;
+  const antes = quantidadesPorProduto(itensAntes);
+  const depois = quantidadesPorProduto(itensDepois);
+  const codigos = new Set([...antes.keys(), ...depois.keys()]);
+  const baixados = [];
+  for(const codigo of codigos){
+    const produto = S.produtos.get(codigo);
+    if(!produto || !estoqueControlado(produto)) continue;
+    const delta = (depois.get(codigo)||0) - (antes.get(codigo)||0);
+    if(!delta) continue;
+    const atualizado = { ...produto, estoque: (Number(produto.estoque)||0) - delta };
+    try{
+      await S.db.collection('produtos').doc(codigo).set(atualizado);
+      S.produtos.set(codigo, atualizado);
+      if(delta>0 && estoqueBaixo(atualizado)) baixados.push(atualizado.descricao);
+    }catch(e){ console.error('Erro ao ajustar estoque do produto '+codigo+':', e); }
+  }
+  if(baixados.length) toast('Estoque baixo após a venda: '+baixados.join(', ')+'.', 'err');
+}
 
 function renderProdutos(el){
   setTitle('Produtos', 'Catálogo de produtos', backHomeBtn());
@@ -1673,6 +1711,7 @@ function renderPedidoNovo(el){
       if(!S.db) throw new Error('Sem conexão com o banco de dados nesta visualização.');
       await S.db.collection('pedidos').doc(String(numero)).set(doc);
       S.pedidos.set(String(numero), doc);
+      await ajustarEstoquePedido([], itens);
       toast('Salvo', 'ok');
       pedidoUI.novoItens = [];
       pedidoUI.buscaNumero = String(numero);
@@ -1781,6 +1820,7 @@ async function excluirFicha(pedido, container){
     if(!S.db) throw new Error('Sem conexão com o banco de dados nesta visualização.');
     await S.db.collection('pedidos').doc(String(pedido.numero)).delete();
     S.pedidos.delete(String(pedido.numero));
+    await ajustarEstoquePedido(pedido.itens, []);
     toast('Pedido nº '+pedido.numero+' excluído.', 'ok');
     container.innerHTML = '';
     pedidoUI.buscaNumero = '';
@@ -1968,6 +2008,7 @@ function openEditarFicha(pedido, container){
       // `pedido` object in place: it may be a frozen/immutable snapshot from the db
       // cache, and writing into it (e.g. deleting/reassigning its own keys) throws.
       S.pedidos.set(String(draft.numero), draft);
+      await ajustarEstoquePedido(pedido.itens, draft.itens);
       toast('Salva a alteração', 'ok');
       container.innerHTML = renderFichaHTML(draft);
       wireFichaActions(container, draft);
@@ -2245,6 +2286,186 @@ function renderFinanceiro(el){
   document.getElementById('fin-so-vencidas').onchange = (e)=>{ receberUI.soVencidas = e.target.checked; receberUI.page = 1; renderFinanceiro(el); };
   const recPrev = document.getElementById('fin-receber-prev'); if(recPrev) recPrev.onclick = ()=>{ receberUI.page--; renderFinanceiro(el); };
   const recNext = document.getElementById('fin-receber-next'); if(recNext) recNext.onclick = ()=>{ receberUI.page++; renderFinanceiro(el); };
+}
+
+/* ================= BACKUP / EXPORTAÇÃO ================= */
+function csvEscape(v){
+  if(v===null || v===undefined) return '';
+  const s = String(v);
+  return /[;"\n\r]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
+}
+function toCSV(columns, rows){
+  const header = columns.map(c=>csvEscape(c.label)).join(';');
+  const body = rows.map(r=> columns.map(c=> csvEscape(typeof c.value==='function' ? c.value(r) : r[c.key])).join(';')).join('\r\n');
+  // BOM no início para o Excel abrir os acentos corretamente.
+  return '﻿' + header + '\r\n' + body;
+}
+async function baixarArquivo(filename, conteudo, mime){
+  if(!S.downloads){ toast('Exportação de arquivos não está disponível nesta visualização.', 'err'); return false; }
+  try{
+    const blob = conteudo instanceof Blob ? conteudo : new Blob([conteudo], {type: mime||'text/plain;charset=utf-8;'});
+    await S.downloads.save({ filename, data: blob });
+    toast('Arquivo exportado: '+filename, 'ok');
+    return true;
+  }catch(e){
+    if(e && e.code==='declined') return false;
+    toast('Erro ao exportar: '+((e&&e.message)||String(e)), 'err');
+    return false;
+  }
+}
+
+function exportarClientesCSV(){
+  const rows = Array.from(S.clientes.values()).sort((a,b)=> (a.nome||'').localeCompare(b.nome||''));
+  const csv = toCSV([
+    {key:'codigo', label:'Código'},
+    {key:'nome', label:'Nome'},
+    {key:'cpf_cnpj', label:'CPF/CNPJ'},
+    {key:'rg', label:'RG'},
+    {key:'telefone', label:'Telefone'},
+    {key:'rua', label:'Rua'},
+    {key:'numero', label:'Número'},
+    {key:'bairro', label:'Bairro'},
+    {key:'cep', label:'CEP'},
+    {key:'cidade', label:'Cidade'},
+    {key:'estado', label:'UF'},
+    {label:'Cadastro', value:c=>fmtDate(c.data_cadastro)},
+  ], rows);
+  baixarArquivo('clientes-'+todayISO()+'.csv', csv, 'text/csv;charset=utf-8;');
+}
+
+function exportarProdutosCSV(){
+  const rows = Array.from(S.produtos.values()).sort((a,b)=> (a.descricao||'').localeCompare(b.descricao||''));
+  const csv = toCSV([
+    {key:'codigo', label:'Código'},
+    {key:'descricao', label:'Descrição'},
+    {key:'ncm', label:'NCM'},
+    {label:'Custo', value:p=>fmtBRL(p.valor_compra)},
+    {label:'Venda', value:p=>fmtBRL(p.valor_venda)},
+    {label:'Lucro', value:p=>fmtBRL((Number(p.valor_venda)||0)-(Number(p.valor_compra)||0))},
+    {label:'Estoque', value:p=> estoqueControlado(p) ? p.estoque : 'não controlado'},
+    {key:'estoque_min', label:'Estoque mínimo'},
+  ], rows);
+  baixarArquivo('produtos-'+todayISO()+'.csv', csv, 'text/csv;charset=utf-8;');
+}
+
+function exportarPedidosCSV(){
+  const linhas = [];
+  Array.from(S.pedidos.values()).sort((a,b)=> (Number(a.numero)||0)-(Number(b.numero)||0)).forEach(p=>{
+    (p.itens||[]).forEach(it=>{
+      (it.parcelas||[]).forEach(parc=>{
+        linhas.push({
+          numero: p.numero, data_compra: p.data_compra, cliente: p.cliente_nome, codigo_cliente: p.codigo_cliente,
+          forma_pagamento: p.forma_pagamento, produto: it.descricao, codigo_produto: it.codigo_produto,
+          uni: it.uni, valor_parcela: it.valor_parcela, parcelaLabel: parc.n+'/'+it.parcelas_qtd,
+          data_pgto: parc.data_pgto, recebimento: parc.recebimento,
+        });
+      });
+    });
+  });
+  const csv = toCSV([
+    {key:'numero', label:'Pedido'},
+    {label:'Data', value:r=>fmtDate(r.data_compra)},
+    {key:'cliente', label:'Cliente'},
+    {key:'codigo_cliente', label:'Cód. cliente'},
+    {key:'forma_pagamento', label:'Forma pgto.'},
+    {key:'produto', label:'Produto'},
+    {key:'codigo_produto', label:'Cód. produto'},
+    {key:'uni', label:'Uni.'},
+    {label:'Valor/parcela', value:r=>fmtBRL(r.valor_parcela)},
+    {key:'parcelaLabel', label:'Parcela'},
+    {label:'Data pgto.', value:r=> r.data_pgto ? fmtDate(r.data_pgto) : ''},
+    {label:'Recebimento', value:r=>fmtBRL(r.recebimento)},
+  ], linhas);
+  baixarArquivo('pedidos-'+todayISO()+'.csv', csv, 'text/csv;charset=utf-8;');
+}
+
+function gerarBackupCompleto(){
+  return JSON.stringify({
+    sistema: 'Ramos de Oliveira', versao: 1, gerado_em: new Date().toISOString(),
+    clientes: Array.from(S.clientes.values()),
+    produtos: Array.from(S.produtos.values()),
+    pedidos: Array.from(S.pedidos.values()),
+  }, null, 2);
+}
+async function exportarBackupCompleto(){
+  await baixarArquivo('backup-ramos-de-oliveira-'+todayISO()+'.json', gerarBackupCompleto(), 'application/json;charset=utf-8;');
+}
+
+async function restaurarBackup(obj, statusEl){
+  if(!obj || typeof obj!=='object' || (!Array.isArray(obj.clientes) && !Array.isArray(obj.produtos) && !Array.isArray(obj.pedidos))){
+    toast('Arquivo de backup inválido.', 'err'); return;
+  }
+  const totalRegistros = (obj.clientes||[]).length + (obj.produtos||[]).length + (obj.pedidos||[]).length;
+  if(!confirm('Restaurar este backup vai sobrescrever os registros com os mesmos códigos já cadastrados ('+totalRegistros+' registro(s) no arquivo). Continuar?')) return;
+  if(!S.db){ toast('Sem conexão com o banco de dados nesta visualização.', 'err'); return; }
+  let ok=0, fail=0;
+  async function restaurarColecao(nome, lista, map, chave){
+    for(const item of (lista||[])){
+      const id = item && item[chave]!=null ? String(item[chave]) : '';
+      if(!id){ fail++; continue; }
+      try{ await S.db.collection(nome).doc(id).set(item); map.set(id, item); ok++; }
+      catch(e){ console.error('Erro ao restaurar '+nome+' '+id+':', e); fail++; }
+      if(statusEl) statusEl.textContent = 'Restaurando… '+(ok+fail)+'/'+totalRegistros;
+    }
+  }
+  await restaurarColecao('clientes', obj.clientes, S.clientes, 'codigo');
+  await restaurarColecao('produtos', obj.produtos, S.produtos, 'codigo');
+  await restaurarColecao('pedidos', obj.pedidos, S.pedidos, 'numero');
+  toast(fail===0 ? ok+' registro(s) restaurado(s).' : ok+' restaurado(s), '+fail+' com erro.', fail===0?'ok':'err');
+  render();
+}
+
+function renderBackup(el){
+  setTitle('Backup', 'Exportação e restauração de dados', backHomeBtn());
+  const podeExportar = !!S.downloads;
+  el.innerHTML = `
+    <div class="card" style="margin-bottom:20px;">
+      <div class="card-head"><h2>Exportar dados</h2></div>
+      <div class="card-body">
+        ${!podeExportar ? `<div class="alertbox info">${ICONS.warn}<div>Exportação de arquivos não está disponível nesta visualização.</div></div>` : ''}
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="btn" id="bkp-clientes" ${podeExportar?'':'disabled'}>${ICONS.upload} Exportar clientes (CSV)</button>
+          <button class="btn" id="bkp-produtos" ${podeExportar?'':'disabled'}>${ICONS.upload} Exportar produtos (CSV)</button>
+          <button class="btn" id="bkp-pedidos" ${podeExportar?'':'disabled'}>${ICONS.upload} Exportar pedidos (CSV)</button>
+        </div>
+        <div style="margin-top:16px; padding-top:16px; border-top:1px solid var(--border);">
+          <button class="btn primary" id="bkp-completo" ${podeExportar?'':'disabled'}>${ICONS.upload} Baixar backup completo (JSON)</button>
+          <div class="hint" style="margin-top:8px; color:var(--muted); font-size:12px;">O backup completo contém todos os clientes, produtos e pedidos — guarde-o em um lugar seguro para restaurar em caso de perda de dados.</div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Restaurar backup</h2></div>
+      <div class="card-body">
+        <div class="alertbox warning">${ICONS.warn}<div>Restaurar um backup sobrescreve os registros com os mesmos códigos já cadastrados. Use apenas para recuperar dados perdidos.</div></div>
+        <input type="file" id="bkp-arquivo" accept="application/json,.json">
+        <div id="bkp-status" style="margin-top:10px; font-size:12.5px; color:var(--muted);"></div>
+      </div>
+    </div>
+  `;
+  const b1 = document.getElementById('bkp-clientes'); if(b1) b1.onclick = exportarClientesCSV;
+  const b2 = document.getElementById('bkp-produtos'); if(b2) b2.onclick = exportarProdutosCSV;
+  const b3 = document.getElementById('bkp-pedidos'); if(b3) b3.onclick = exportarPedidosCSV;
+  const b4 = document.getElementById('bkp-completo'); if(b4) b4.onclick = exportarBackupCompleto;
+  const fileInp = document.getElementById('bkp-arquivo');
+  const statusEl = document.getElementById('bkp-status');
+  if(fileInp) fileInp.onchange = (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    statusEl.textContent = 'Lendo arquivo…';
+    const reader = new FileReader();
+    reader.onload = async ()=>{
+      try{
+        const obj = JSON.parse(reader.result);
+        await restaurarBackup(obj, statusEl);
+      }catch(err){
+        toast('Arquivo inválido: '+err.message, 'err');
+      }
+      statusEl.textContent = '';
+      fileInp.value = '';
+    };
+    reader.readAsText(file);
+  };
 }
 
 window.__app = { S, go, toast, fmtBRL, fmtDate };
