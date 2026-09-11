@@ -633,7 +633,7 @@
 
     function itemTotal(it){ return (it.valor_parcela||0) * (it.parcelas_qtd||0); }
     function renderResumo(){
-      const totalGeral = draft.itens.reduce((s,it)=> s + itemTotal(it)*(it.uni||1), 0);
+      const totalGeral = draft.itens.reduce((s,it)=> s + itemTotal(it), 0);
       const totalRecebido = draft.itens.reduce((s,it)=> s + (it.parcelas||[]).reduce((s2,p)=> s2+(Number(p.recebimento)||0), 0), 0);
       const totalDesconto = draft.itens.reduce((s,it)=> s + (it.parcelas||[]).reduce((s2,p)=> s2+(Number(p.desconto)||0), 0), 0);
       back.querySelector('#ef-resumo').innerHTML = `Total: <strong>${fmtBRL(totalGeral)}</strong> &middot; Recebido: <strong>${fmtBRL(totalRecebido)}</strong>${totalDesconto>0?` &middot; Desconto: <strong>${fmtBRL(totalDesconto)}</strong>`:''} &middot; Saldo: <strong>${fmtBRL(Math.max(totalGeral-totalRecebido-totalDesconto,0))}</strong>`;
@@ -661,7 +661,10 @@
     const numeroBadge = back.querySelector('#ef-numero-badge');
     function numeroDuplicado(){
       const val = numeroInp.value.trim();
-      return !!val && val !== String(pedido.numero) && S.pedidos.has(val);
+      if(!val) return false;
+      const n = parseInt(val, 10);
+      if(isNaN(n) || String(n) !== val) return false;
+      return String(n) !== String(pedido.numero) && S.pedidos.has(String(n));
     }
     numeroInp.addEventListener('input', ()=>{ numeroBadge.style.display = numeroDuplicado() ? 'inline-flex' : 'none'; });
 
@@ -815,7 +818,10 @@
       const clienteMatch = clienteLabel ? findClienteByLabel(clienteLabel) : null;
       if(clienteMatch){ draft.codigo_cliente = clienteMatch.codigo; draft.cliente_nome = clienteMatch.nome; }
       else if(clienteLabel){ draft.cliente_nome = clienteLabel; }
-      draft.itens.forEach(it=>{ it.valor_venda = it.valor_parcela * it.parcelas_qtd; });
+      // valor_parcela já embute o uni (valor_unit*uni/parcelas_qtd na criação), então
+      // valor_venda — tratado em toda parte como preço por unidade (ficha, financeiro,
+      // painel) — precisa dividir por uni de volta para não inflar os totais.
+      draft.itens.forEach(it=>{ it.valor_venda = (it.valor_parcela * it.parcelas_qtd) / (it.uni || 1); });
 
       const saveBtn = back.querySelector('#ef-save');
       const saveBtnHTML = saveBtn.innerHTML;

@@ -305,6 +305,9 @@ async function salvarPedidoCompleto(numeroAntigo, draft){
     const { error: eIns } = await sb.from('pedidos').insert(header);
     if(eIns) throw eIns;
     await salvarItensPedido(draft.numero, draft.itens);
+    // Não precisa apagar os itens antigos manualmente antes: excluir o pedido
+    // abaixo já cascateia (ON DELETE CASCADE) para pedido_itens -> parcelas ->
+    // pagamentos do número antigo.
     const { error: eDel } = await sb.from('pedidos').delete().eq('numero', numeroAntigo);
     if(eDel) throw eDel;
   }else{

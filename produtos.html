@@ -225,7 +225,7 @@
             <div class="field"><label>Estoque atual</label><input id="p-estoque" type="number" step="1" placeholder="não controlado" value="${estoqueControlado(p)?esc(p.estoque):''}"></div>
             <div class="field"><label>Estoque mínimo (alerta)</label><input id="p-estoquemin" type="number" step="1" value="${p.estoque_min ?? 5}"></div>
           </div>
-          <div style="margin-top:4px; font-size:12px; color:var(--muted);">Deixe "Estoque atual" em branco se não quiser controlar estoque deste produto. O estoque não é debitado automaticamente pelas vendas — atualize aqui manualmente.</div>
+          <div style="margin-top:4px; font-size:12px; color:var(--muted);">Deixe "Estoque atual" em branco se não quiser controlar estoque deste produto. Quando controlado, o estoque é ajustado automaticamente ao criar, editar ou excluir pedidos com este produto (a tela de Vendas avisa se o estoque ficar baixo).</div>
         </div>
         <div class="modal-foot">
           <button class="btn" id="pm-cancel">Cancelar</button>
