@@ -1,0 +1,183 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ramos de Oliveira &middot; Backup</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800&family=Roboto+Condensed:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head><body>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="assets/supabase-client.js"></script>
+<script src="assets/nav.js"></script>
+<script>
+(async function(){
+  const session = await RO.requireAuth();
+  if(!session) return;
+  RO_NAV.mount('backup');
+  RO_NAV.setTitle('Backup', 'Exportação e restauração de dados', RO_NAV.backHomeBtn());
+
+  const ICONS = RO_NAV.ICONS;
+  const esc = RO.esc, fmtBRL = RO.fmtBRL, fmtDate = RO.fmtDate, todayISO = RO.todayISO, toast = RO.toast;
+
+  const el = document.getElementById('content');
+  el.innerHTML = `
+    <div class="card" style="margin-bottom:20px;">
+      <div class="card-head"><h2>Exportar dados</h2></div>
+      <div class="card-body">
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="btn" id="bkp-clientes">${ICONS.upload} Exportar clientes (CSV)</button>
+          <button class="btn" id="bkp-produtos">${ICONS.upload} Exportar produtos (CSV)</button>
+          <button class="btn" id="bkp-pedidos">${ICONS.upload} Exportar pedidos (CSV)</button>
+        </div>
+        <div style="margin-top:16px; padding-top:16px; border-top:1px solid var(--border);">
+          <button class="btn primary" id="bkp-completo">${ICONS.upload} Baixar backup completo (JSON)</button>
+          <div class="hint" style="margin-top:8px; color:var(--muted); font-size:12px;">O backup completo contém todos os clientes, produtos e pedidos (com parcelas e pagamentos) — guarde-o em um lugar seguro para restaurar em caso de perda de dados. O próprio Supabase também mantém backups automáticos do banco.</div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Restaurar backup</h2></div>
+      <div class="card-body">
+        <div class="alertbox warning">${ICONS.warn}<div>Restaurar um backup sobrescreve os registros com os mesmos códigos/números já cadastrados. Use apenas para recuperar dados perdidos.</div></div>
+        <input type="file" id="bkp-arquivo" accept="application/json,.json">
+        <div id="bkp-status" style="margin-top:10px; font-size:12.5px; color:var(--muted);"></div>
+      </div>
+    </div>
+  `;
+
+  function csvEscape(v){
+    if(v===null || v===undefined) return '';
+    const s = String(v);
+    return /[;"\n\r]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
+  }
+  function toCSV(columns, rows){
+    const header = columns.map(c=>csvEscape(c.label)).join(';');
+    const body = rows.map(r=> columns.map(c=> csvEscape(typeof c.value==='function' ? c.value(r) : r[c.key])).join(';')).join('\r\n');
+    return '﻿' + header + '\r\n' + body;
+  }
+  function baixarArquivo(filename, conteudo, mime){
+    const blob = conteudo instanceof Blob ? conteudo : new Blob([conteudo], {type: mime||'text/plain;charset=utf-8;'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=> URL.revokeObjectURL(url), 4000);
+    toast('Arquivo exportado: '+filename, 'ok');
+  }
+
+  document.getElementById('bkp-clientes').onclick = async ()=>{
+    const rows = (await RO.loadClientes()).sort((a,b)=> (a.nome||'').localeCompare(b.nome||''));
+    const csv = toCSV([
+      {key:'codigo', label:'Código'}, {key:'nome', label:'Nome'}, {key:'cpf_cnpj', label:'CPF/CNPJ'},
+      {key:'rg', label:'RG'}, {key:'telefone', label:'Telefone'}, {key:'rua', label:'Rua'},
+      {key:'numero', label:'Número'}, {key:'bairro', label:'Bairro'}, {key:'cep', label:'CEP'},
+      {key:'cidade', label:'Cidade'}, {key:'estado', label:'UF'},
+      {label:'Cadastro', value:c=>fmtDate(c.data_cadastro)},
+    ], rows);
+    baixarArquivo('clientes-'+todayISO()+'.csv', csv, 'text/csv;charset=utf-8;');
+  };
+
+  document.getElementById('bkp-produtos').onclick = async ()=>{
+    const rows = (await RO.loadProdutos()).sort((a,b)=> (a.descricao||'').localeCompare(b.descricao||''));
+    const csv = toCSV([
+      {key:'codigo', label:'Código'}, {key:'descricao', label:'Descrição'}, {key:'ncm', label:'NCM'},
+      {label:'Custo', value:p=>fmtBRL(p.valor_compra)}, {label:'Venda', value:p=>fmtBRL(p.valor_venda)},
+      {label:'Lucro', value:p=>fmtBRL((Number(p.valor_venda)||0)-(Number(p.valor_compra)||0))},
+      {label:'Estoque', value:p=> RO.estoqueControlado(p) ? p.estoque : 'não controlado'},
+      {key:'estoque_min', label:'Estoque mínimo'},
+    ], rows);
+    baixarArquivo('produtos-'+todayISO()+'.csv', csv, 'text/csv;charset=utf-8;');
+  };
+
+  document.getElementById('bkp-pedidos').onclick = async ()=>{
+    const [clientes, pedidos] = await Promise.all([RO.loadClientesMap(), RO.loadPedidos()]);
+    const linhas = [];
+    pedidos.sort((a,b)=> (Number(a.numero)||0)-(Number(b.numero)||0)).forEach(p=>{
+      (p.itens||[]).forEach(it=>{
+        (it.parcelas||[]).forEach(parc=>{
+          linhas.push({
+            numero: p.numero, data_compra: p.data_compra, cliente: (clientes.get(p.codigo_cliente)||{}).nome || p.cliente_nome || '', codigo_cliente: p.codigo_cliente,
+            forma_pagamento: p.forma_pagamento, produto: it.descricao, codigo_produto: it.codigo_produto,
+            uni: it.uni, valor_parcela: it.valor_parcela, parcelaLabel: parc.n+'/'+it.parcelas_qtd,
+            data_pgto: parc.data_pgto, recebimento: parc.recebimento, desconto: parc.desconto,
+          });
+        });
+      });
+    });
+    const csv = toCSV([
+      {key:'numero', label:'Pedido'}, {label:'Data', value:r=>fmtDate(r.data_compra)},
+      {key:'cliente', label:'Cliente'}, {key:'codigo_cliente', label:'Cód. cliente'},
+      {key:'forma_pagamento', label:'Forma pgto.'}, {key:'produto', label:'Produto'}, {key:'codigo_produto', label:'Cód. produto'},
+      {key:'uni', label:'Uni.'}, {label:'Valor/parcela', value:r=>fmtBRL(r.valor_parcela)}, {key:'parcelaLabel', label:'Parcela'},
+      {label:'Data pgto.', value:r=> r.data_pgto ? fmtDate(r.data_pgto) : ''},
+      {label:'Recebimento', value:r=>fmtBRL(r.recebimento)}, {label:'Desconto', value:r=>fmtBRL(r.desconto)},
+    ], linhas);
+    baixarArquivo('pedidos-'+todayISO()+'.csv', csv, 'text/csv;charset=utf-8;');
+  };
+
+  document.getElementById('bkp-completo').onclick = async ()=>{
+    const [clientes, produtos, pedidos] = await Promise.all([RO.loadClientes(), RO.loadProdutos(), RO.loadPedidos()]);
+    const json = JSON.stringify({
+      sistema: 'Ramos de Oliveira', versao: 2, gerado_em: new Date().toISOString(),
+      clientes, produtos, pedidos,
+    }, null, 2);
+    baixarArquivo('backup-ramos-de-oliveira-'+todayISO()+'.json', json, 'application/json;charset=utf-8;');
+  };
+
+  const fileInp = document.getElementById('bkp-arquivo');
+  const statusEl = document.getElementById('bkp-status');
+  fileInp.onchange = (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    statusEl.textContent = 'Lendo arquivo…';
+    const reader = new FileReader();
+    reader.onload = async ()=>{
+      try{
+        const obj = JSON.parse(reader.result);
+        await restaurarBackup(obj);
+      }catch(err){
+        toast('Arquivo inválido: '+err.message, 'err');
+      }
+      statusEl.textContent = '';
+      fileInp.value = '';
+    };
+    reader.readAsText(file);
+  };
+
+  async function restaurarBackup(obj){
+    if(!obj || typeof obj!=='object' || (!Array.isArray(obj.clientes) && !Array.isArray(obj.produtos) && !Array.isArray(obj.pedidos))){
+      toast('Arquivo de backup inválido.', 'err'); return;
+    }
+    const totalRegistros = (obj.clientes||[]).length + (obj.produtos||[]).length + (obj.pedidos||[]).length;
+    if(!confirm('Restaurar este backup vai sobrescrever os registros com os mesmos códigos/números já cadastrados ('+totalRegistros+' registro(s) no arquivo). Continuar?')) return;
+    let ok=0, fail=0, done=0;
+    function tick(){ done++; statusEl.textContent = 'Restaurando… '+done+'/'+totalRegistros; }
+
+    for(const c of (obj.clientes||[])){
+      if(!c || !c.codigo){ fail++; tick(); continue; }
+      const { error } = await RO.sb.from('clientes').upsert(c, { onConflict: 'codigo' });
+      error ? fail++ : ok++; tick();
+    }
+    for(const p of (obj.produtos||[])){
+      if(!p || !p.codigo){ fail++; tick(); continue; }
+      const { error } = await RO.sb.from('produtos').upsert(p, { onConflict: 'codigo' });
+      error ? fail++ : ok++; tick();
+    }
+    for(const p of (obj.pedidos||[])){
+      if(!p || p.numero==null){ fail++; tick(); continue; }
+      try{
+        const { error: eHead } = await RO.sb.from('pedidos').upsert({
+          numero: p.numero, data_compra: p.data_compra, codigo_cliente: p.codigo_cliente||null,
+          cliente_nome: p.cliente_nome||null, forma_pagamento: p.forma_pagamento||null,
+          condicao_pgto: p.condicao_pgto||1, proximo_pagamento_override: p.proximo_pagamento_override||null,
+        }, { onConflict: 'numero' });
+        if(eHead) throw eHead;
+        await RO.excluirItensPedido(p.numero);
+        await RO.salvarItensPedido(p.numero, p.itens||[]);
+        ok++;
+      }catch(e){ console.error('Erro ao restaurar pedido '+p.numero+':', e); fail++; }
+      tick();
+    }
+    toast(fail===0 ? ok+' registro(s) restaurado(s).' : ok+' restaurado(s), '+fail+' com erro.', fail===0?'ok':'err');
+  }
+})();
+</script>
+</body></html>

@@ -251,6 +251,71 @@ function listaContasAReceber(pedidos, clientesMap){
   return linhas;
 }
 
+/* ---------------- gravação de pedidos (itens/parcelas/pagamentos) ---------------- */
+function blankParcela(n){ return { n, data_pgto:null, recebimento:0, desconto:0, recibo:null, pagamentos:[] }; }
+async function excluirItensPedido(numero){
+  const { error } = await sb.from('pedido_itens').delete().eq('pedido_numero', numero);
+  if(error) throw error;
+}
+// Regrava os itens/parcelas/pagamentos de um pedido a partir de um array de itens
+// no mesmo formato aninhado usado em toda a interface (it.parcelas[].pagamentos[]).
+// Usado tanto ao emitir um pedido novo quanto ao salvar edições (nesse caso,
+// sempre chamado depois de excluirItensPedido para o mesmo número).
+async function salvarItensPedido(numero, itens){
+  for(const it of itens){
+    const { data: itemRow, error: e1 } = await sb.from('pedido_itens').insert({
+      pedido_numero: numero, codigo_produto: it.codigo_produto || null, descricao: it.descricao || '',
+      uni: it.uni||1, valor_venda: it.valor_venda||0, valor_compra: it.valor_compra||0,
+      parcelas_qtd: it.parcelas_qtd||1, valor_parcela: it.valor_parcela||0,
+    }).select('id').single();
+    if(e1) throw e1;
+    const itemId = itemRow.id;
+    const parcelasInput = (it.parcelas||[]).map(p=>({
+      item_id: itemId, n: p.n, data_pgto: p.data_pgto||null,
+      recebimento: Number(p.recebimento)||0, desconto: Number(p.desconto)||0, recibo: p.recibo||null,
+    }));
+    if(!parcelasInput.length) continue;
+    const { data: parcRows, error: e2 } = await sb.from('parcelas').insert(parcelasInput).select('id,n');
+    if(e2) throw e2;
+    const idByN = new Map(parcRows.map(r=>[r.n, r.id]));
+    const pagamentosInput = [];
+    (it.parcelas||[]).forEach(p=>{
+      const pid = idByN.get(p.n);
+      pagamentosDaParcela(p).forEach(pg=>{
+        if((Number(pg.valor)||0) > 0) pagamentosInput.push({ parcela_id: pid, data: pg.data || p.data_pgto || todayISO(), valor: pg.valor });
+      });
+    });
+    if(pagamentosInput.length){
+      const { error: e3 } = await sb.from('pagamentos').insert(pagamentosInput);
+      if(e3) throw e3;
+    }
+  }
+}
+// Regrava um pedido inteiro (cabeçalho + itens/parcelas/pagamentos) — usado para
+// editar a ficha, registrar um pagamento avulso e restaurar backups, já que todos
+// partem de uma cópia completa do pedido com o trecho alterado.
+async function salvarPedidoCompleto(numeroAntigo, draft){
+  const numeroMudou = String(draft.numero) !== String(numeroAntigo);
+  const header = {
+    numero: draft.numero, data_compra: draft.data_compra, codigo_cliente: draft.codigo_cliente || null,
+    cliente_nome: draft.cliente_nome || null, forma_pagamento: draft.forma_pagamento || null,
+    condicao_pgto: draft.condicao_pgto || 1, proximo_pagamento_override: draft.proximo_pagamento_override || null,
+  };
+  if(numeroMudou){
+    const { error: eIns } = await sb.from('pedidos').insert(header);
+    if(eIns) throw eIns;
+    await salvarItensPedido(draft.numero, draft.itens);
+    const { error: eDel } = await sb.from('pedidos').delete().eq('numero', numeroAntigo);
+    if(eDel) throw eDel;
+  }else{
+    const { error: eUpd } = await sb.from('pedidos').update(header).eq('numero', draft.numero);
+    if(eUpd) throw eUpd;
+    await excluirItensPedido(draft.numero);
+    await salvarItensPedido(draft.numero, draft.itens);
+  }
+  return loadPedidoByNumero(draft.numero);
+}
+
 /* ---------------- autenticação ---------------- */
 // Garante que só usuários autenticados vejam as telas do sistema. Chame no topo
 // de cada página (exceto login.html). Redireciona para login.html se não houver
@@ -276,5 +341,6 @@ window.RO = {
   nextCodigo, nextPedidoNumero, estoqueControlado, estoqueBaixo,
   parcelaVencimentoEstimado, proximoPagamentoPedido, pagamentosDaParcela, remanescenteParcela,
   pedidoTotais, listaContasAReceber,
+  blankParcela, excluirItensPedido, salvarItensPedido, salvarPedidoCompleto,
 };
 })();

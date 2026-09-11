@@ -1,0 +1,216 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ramos de Oliveira &middot; Financeiro</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800&family=Roboto+Condensed:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head><body>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="assets/supabase-client.js"></script>
+<script src="assets/nav.js"></script>
+<script>
+(async function(){
+  const session = await RO.requireAuth();
+  if(!session) return;
+  RO_NAV.mount('financeiro');
+  RO_NAV.setTitle('Financeiro', 'Vendas e custo por mês', RO_NAV.backHomeBtn());
+
+  const ICONS = RO_NAV.ICONS;
+  const esc = RO.esc, fmtBRL = RO.fmtBRL, fmtDate = RO.fmtDate;
+
+  const el = document.getElementById('content');
+  el.innerHTML = '<div class="empty"><div class="spinner" style="margin:0 auto 10px;"></div>Carregando…</div>';
+
+  let clientes, pedidos;
+  try{
+    [clientes, pedidos] = await Promise.all([RO.loadClientes(), RO.loadPedidos()]);
+  }catch(e){
+    el.innerHTML = '<div class="empty">'+ICONS.warn+'<div>Erro ao carregar dados: '+esc(e.message)+'</div></div>';
+    return;
+  }
+  const clientesMap = new Map(clientes.map(c=>[c.codigo,c]));
+
+  const financeiroUI = { sortKey: null, sortDir: 'desc' };
+  const FIN_NUMERIC_KEYS = new Set(['pedidos','vendas','custo','lucro']);
+  const receberUI = { sortKey: 'vencimento', sortDir: 'asc', page: 1, pageSize: 15, soVencidas: false };
+  const REC_NUMERIC_KEYS = new Set(['numero','n','valor','vencimento','diasAtraso']);
+
+  function topClientes(limit){
+    const totals = new Map();
+    pedidos.forEach(p=>{
+      const total = (p.itens||[]).reduce((s,it)=> s+(Number(it.valor_venda)||0)*(Number(it.uni)||1), 0);
+      const key = p.codigo_cliente || p.cliente_nome;
+      if(!key) return;
+      if(!totals.has(key)) totals.set(key, { nome: (clientesMap.get(p.codigo_cliente)||{}).nome || p.cliente_nome || '—', total:0, pedidos:0 });
+      const t = totals.get(key); t.total += total; t.pedidos++;
+    });
+    return Array.from(totals.values()).sort((a,b)=> b.total-a.total).slice(0, limit);
+  }
+  function topProdutos(limit){
+    const totals = new Map();
+    pedidos.forEach(p=>{
+      (p.itens||[]).forEach(it=>{
+        const key = it.codigo_produto || it.descricao;
+        if(!key) return;
+        if(!totals.has(key)) totals.set(key, { descricao: it.descricao||'—', qtd:0, total:0 });
+        const t = totals.get(key); t.qtd += (Number(it.uni)||1); t.total += (Number(it.valor_venda)||0)*(Number(it.uni)||1);
+      });
+    });
+    return Array.from(totals.values()).sort((a,b)=> b.total-a.total).slice(0, limit);
+  }
+  function rankBars(rows, valueKey, labelKey, subFn){
+    const max = Math.max(1, ...rows.map(r=>r[valueKey]));
+    return rows.map((r,i)=>`
+      <div class="rankrow">
+        <div class="rankpos">${i+1}</div>
+        <div class="rankinfo">
+          <div class="rankname">${esc(r[labelKey])}</div>
+          <div class="rankbar"><div class="rankbar-fill" style="width:${Math.max(3,Math.round(r[valueKey]/max*100))}%"></div></div>
+        </div>
+        <div class="rankvalue">${fmtBRL(r[valueKey])}${subFn?`<div class="ranksub">${esc(subFn(r))}</div>`:''}</div>
+      </div>`).join('');
+  }
+
+  function render(){
+    const meses = new Map();
+    pedidos.forEach(p=>{
+      const ym = (p.data_compra||'').slice(0,7);
+      if(!ym) return;
+      if(!meses.has(ym)) meses.set(ym, {vendas:0, custo:0, pedidos:0});
+      const m = meses.get(ym);
+      m.pedidos++;
+      (p.itens||[]).forEach(it=>{
+        m.vendas += (Number(it.valor_venda)||0)*(Number(it.uni)||1);
+        m.custo += (Number(it.valor_compra)||0)*(Number(it.uni)||1);
+      });
+    });
+    const rows = Array.from(meses.entries()).sort((a,b)=> a[0]<b[0]?1:-1);
+    const maxVal = Math.max(1, ...rows.map(([,m])=>Math.max(m.vendas,m.custo)));
+    const chartRows = rows.slice(0,12).reverse();
+    const tableRows = RO.sortRows(rows, financeiroUI, (row,key)=>{
+      const [ym,m] = row;
+      if(key==='mes') return ym;
+      if(key==='lucro') return m.vendas-m.custo;
+      return m[key];
+    }, FIN_NUMERIC_KEYS, (a,b)=> a[0]<b[0]?1:-1);
+
+    let receberList = RO.listaContasAReceber(pedidos, clientesMap);
+    if(receberUI.soVencidas) receberList = receberList.filter(l=>l.vencida);
+    receberList = RO.sortRows(receberList, receberUI, (row,key)=>{
+      if(key==='vencimento') return row.vencimento ? row.vencimento.getTime() : Infinity;
+      return row[key];
+    }, REC_NUMERIC_KEYS, (a,b)=>{
+      if(a.vencida!==b.vencida) return a.vencida ? -1 : 1;
+      const av = a.vencimento?a.vencimento.getTime():Infinity, bv = b.vencimento?b.vencimento.getTime():Infinity;
+      return av-bv;
+    });
+    const receberTotalCount = receberList.length;
+    const receberPages = Math.max(1, Math.ceil(receberTotalCount/receberUI.pageSize));
+    receberUI.page = Math.min(receberUI.page, receberPages);
+    const receberStart = (receberUI.page-1)*receberUI.pageSize;
+    const receberPageItems = receberList.slice(receberStart, receberStart+receberUI.pageSize);
+    const receberVencidasCount = RO.listaContasAReceber(pedidos, clientesMap).filter(l=>l.vencida).length;
+
+    const tClientes = topClientes(5);
+    const tProdutos = topProdutos(5);
+
+    el.innerHTML = `
+      <div class="card" style="margin-bottom:20px;">
+        <div class="card-head"><h2>Vendas &times; Custo (últimos ${chartRows.length} meses)</h2></div>
+        <div class="card-body">
+          ${chartRows.length ? `
+          <svg viewBox="0 0 ${Math.max(chartRows.length*90,300)} 220" style="width:100%; height:220px; overflow:visible;" font-family="inherit">
+            ${chartRows.map((([ym,m],i)=>{
+              const x = i*90+20;
+              const hV = Math.round((m.vendas/maxVal)*150);
+              const hC = Math.round((m.custo/maxVal)*150);
+              return `
+                <g>
+                  <rect x="${x}" y="${170-hV}" width="26" height="${hV}" fill="var(--accent)" rx="3"></rect>
+                  <rect x="${x+30}" y="${170-hC}" width="26" height="${hC}" fill="var(--muted)" rx="3" opacity="0.55"></rect>
+                  <text x="${x+28}" y="192" text-anchor="middle" font-size="11" fill="var(--muted)">${ym.slice(5,7)}/${ym.slice(2,4)}</text>
+                </g>`;
+            })).join('')}
+          </svg>
+          <div style="display:flex; gap:18px; margin-top:8px; font-size:12.5px; color:var(--muted);">
+            <span><span style="display:inline-block;width:10px;height:10px;background:var(--accent);border-radius:3px;margin-right:5px;"></span>Vendas</span>
+            <span><span style="display:inline-block;width:10px;height:10px;background:var(--muted);opacity:.55;border-radius:3px;margin-right:5px;"></span>Custo</span>
+          </div>` : `<div class="empty">${ICONS.coins}<div>Nenhum pedido lançado ainda.</div></div>`}
+        </div>
+      </div>
+      <div class="card" style="margin-bottom:20px;">
+        <div class="card-head"><h2>Relatório mensal</h2></div>
+        <div class="table-wrap" id="fin-mensal-wrap">
+          <table class="data">
+            <thead><tr>${RO.thSort('Mês','mes',financeiroUI,FIN_NUMERIC_KEYS)}${RO.thSort('Pedidos','pedidos',financeiroUI,FIN_NUMERIC_KEYS,'num')}${RO.thSort('Vendas','vendas',financeiroUI,FIN_NUMERIC_KEYS,'num')}${RO.thSort('Custo','custo',financeiroUI,FIN_NUMERIC_KEYS,'num')}${RO.thSort('Lucro','lucro',financeiroUI,FIN_NUMERIC_KEYS,'num')}</tr></thead>
+            <tbody>
+              ${tableRows.length ? tableRows.map(([ym,m])=>`
+                <tr>
+                  <td>${new Date(ym+'-02').toLocaleDateString('pt-BR',{month:'long',year:'numeric'})}</td>
+                  <td class="num">${m.pedidos}</td>
+                  <td class="num">${fmtBRL(m.vendas)}</td>
+                  <td class="num">${fmtBRL(m.custo)}</td>
+                  <td class="num">${fmtBRL(m.vendas-m.custo)}</td>
+                </tr>`).join('') : `<tr><td colspan="5"><div class="empty">Sem dados ainda.</div></td></tr>`}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:20px;">
+        <div class="card-head">
+          <h2>Contas a receber ${receberVencidasCount?`<span class="badge alert" style="margin-left:6px;">${receberVencidasCount} vencida${receberVencidasCount===1?'':'s'}</span>`:''}</h2>
+          <label style="display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--muted); font-weight:400; cursor:pointer;">
+            <input type="checkbox" id="fin-so-vencidas" ${receberUI.soVencidas?'checked':''}> Mostrar só vencidas
+          </label>
+        </div>
+        <div class="table-wrap" id="fin-receber-wrap">
+          <table class="data">
+            <thead><tr>${RO.thSort('Cliente','cliente',receberUI,REC_NUMERIC_KEYS)}${RO.thSort('Pedido','numero',receberUI,REC_NUMERIC_KEYS,'num')}${RO.thSort('Parcela','n',receberUI,REC_NUMERIC_KEYS,'num')}${RO.thSort('Vencimento (estimado)','vencimento',receberUI,REC_NUMERIC_KEYS)}${RO.thSort('Valor','valor',receberUI,REC_NUMERIC_KEYS,'num')}<th>Situação</th></tr></thead>
+            <tbody>
+              ${receberPageItems.length ? receberPageItems.map(l=>`
+                <tr>
+                  <td>${esc(l.cliente)}</td>
+                  <td class="num">${l.numero}</td>
+                  <td class="num">${l.n}/${l.totalParcelas}</td>
+                  <td class="num">${l.vencimento ? fmtDate(l.vencimento) : '—'}</td>
+                  <td class="num">${fmtBRL(l.valor)}</td>
+                  <td>${l.vencida ? `<span class="badge alert">vencida há ${l.diasAtraso}d</span>` : '<span class="badge pending">a vencer</span>'}</td>
+                </tr>`).join('') : `<tr><td colspan="6"><div class="empty">${ICONS.coins}<div>${receberUI.soVencidas ? 'Nenhuma parcela vencida.' : 'Nenhuma parcela pendente.'}</div></div></td></tr>`}
+            </tbody>
+          </table>
+        </div>
+        <div class="pager" style="padding:12px 18px;">
+          <span>Página ${receberUI.page} de ${receberPages} &middot; ${receberTotalCount} parcela${receberTotalCount===1?'':'s'} pendente${receberTotalCount===1?'':'s'}</span>
+          <div style="display:flex; gap:8px;">
+            <button class="btn" ${receberUI.page<=1?'disabled':''} id="fin-receber-prev">Anterior</button>
+            <button class="btn" ${receberUI.page>=receberPages?'disabled':''} id="fin-receber-next">Próxima</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2>Rankings</h2></div>
+        <div class="card-body">
+          <div class="rank-grid">
+            <div>
+              <div class="so-title" style="margin-bottom:8px;">Melhores clientes (total comprado)</div>
+              ${tClientes.length ? rankBars(tClientes,'total','nome', r=>`${r.pedidos} pedido${r.pedidos===1?'':'s'}`) : `<div class="empty">${ICONS.users}<div>Sem dados ainda.</div></div>`}
+            </div>
+            <div>
+              <div class="so-title" style="margin-bottom:8px;">Produtos mais vendidos (valor)</div>
+              ${tProdutos.length ? rankBars(tProdutos,'total','descricao', r=>`${r.qtd} un. vendida${r.qtd===1?'':'s'}`) : `<div class="empty">${ICONS.box}<div>Sem dados ainda.</div></div>`}
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+    RO.wireSortHeaders(document.getElementById('fin-mensal-wrap'), financeiroUI, FIN_NUMERIC_KEYS, render);
+    RO.wireSortHeaders(document.getElementById('fin-receber-wrap'), receberUI, REC_NUMERIC_KEYS, render);
+    document.getElementById('fin-so-vencidas').onchange = (e)=>{ receberUI.soVencidas = e.target.checked; receberUI.page = 1; render(); };
+    const recPrev = document.getElementById('fin-receber-prev'); if(recPrev) recPrev.onclick = ()=>{ receberUI.page--; render(); };
+    const recNext = document.getElementById('fin-receber-next'); if(recNext) recNext.onclick = ()=>{ receberUI.page++; render(); };
+  }
+  render();
+})();
+</script>
+</body></html>
