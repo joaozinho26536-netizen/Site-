@@ -849,25 +849,31 @@ function abrirSeletorData(dataAtual, onEscolher){
 // usado na edição do pedido, quando o cliente paga em mais de uma vez a mesma
 // parcela. O valor digitado é somado ao que já estava registrado (nunca
 // sobrescreve); `onConfirmar(valor, data)` só é chamado depois de validado.
-function abrirNovoPagamentoParcela(jaRecebido, valorParcela, onConfirmar){
-  const remanescente = Math.max(0, valorParcela - jaRecebido);
+function abrirNovoPagamentoParcela(jaRecebido, jaDesconto, valorParcela, onConfirmar){
+  const remanescente = Math.max(0, valorParcela - jaRecebido - jaDesconto);
   const back = document.createElement('div');
   back.className = 'modal-backdrop';
   back.innerHTML = `
     <div class="modal" style="max-width:420px;">
       <div class="modal-head"><h3>Novo pagamento nesta parcela</h3><button class="iconbtn" id="npp-close">&times;</button></div>
       <div class="modal-body">
-        <div class="alertbox info">${ICONS.check}<div>Já recebido: <strong>${fmtBRL(jaRecebido)}</strong> &middot; Saldo: <strong>${fmtBRL(remanescente)}</strong>. O valor abaixo será somado ao que já foi recebido.</div></div>
+        <div class="alertbox info">${ICONS.check}<div>Já recebido: <strong>${fmtBRL(jaRecebido)}</strong>${jaDesconto>0?` &middot; Desconto já concedido: <strong>${fmtBRL(jaDesconto)}</strong>`:''} &middot; Saldo: <strong>${fmtBRL(remanescente)}</strong>. O valor pago é somado ao que já foi recebido.</div></div>
         <div id="npp-error"></div>
         <div class="field-grid" style="grid-template-columns:1fr;">
           <div class="field"><label>Data deste pagamento</label><input id="npp-data" type="date" value="${todayISO()}"></div>
-          <div class="field"><label>Valor deste pagamento</label><input id="npp-valor" inputmode="decimal" value="${fmtNumBR(remanescente)}"></div>
+          <div class="field"><label>Valor pago</label><input id="npp-valor" inputmode="decimal" value="${fmtNumBR(remanescente)}"></div>
+          <div class="field">
+            <label>Desconto concedido (opcional)</label>
+            <input id="npp-desconto" inputmode="decimal" value="${fmtNumBR(0)}">
+            <div class="hint">Use para quitar a parcela dando desconto no saldo restante — some ao valor pago para fechar a conta.</div>
+          </div>
         </div>
       </div>
-      <div class="modal-foot"><button class="btn" id="npp-cancel">Cancelar</button><button class="btn primary" id="npp-save">${ICONS.check} Somar ao recebido</button></div>
+      <div class="modal-foot"><button class="btn" id="npp-cancel">Cancelar</button><button class="btn primary" id="npp-save">${ICONS.check} Somar</button></div>
     </div>`;
   document.body.appendChild(back);
   maskMoneyInput(back.querySelector('#npp-valor'));
+  maskMoneyInput(back.querySelector('#npp-desconto'));
   const close = ()=> back.remove();
   back.querySelector('#npp-close').onclick = close;
   back.querySelector('#npp-cancel').onclick = close;
@@ -877,10 +883,11 @@ function abrirNovoPagamentoParcela(jaRecebido, valorParcela, onConfirmar){
     errBox.innerHTML = '';
     const data = back.querySelector('#npp-data').value;
     const valor = parseNumBR(back.querySelector('#npp-valor').value);
+    const desconto = parseNumBR(back.querySelector('#npp-desconto').value);
     if(!data){ errBox.innerHTML = '<div class="alertbox danger">'+ICONS.warn+'<div>Informe a data do pagamento.</div></div>'; return; }
-    if(valor<=0){ errBox.innerHTML = '<div class="alertbox danger">'+ICONS.warn+'<div>Informe um valor maior que zero.</div></div>'; return; }
+    if(valor<=0 && desconto<=0){ errBox.innerHTML = '<div class="alertbox danger">'+ICONS.warn+'<div>Informe um valor pago ou um desconto maior que zero.</div></div>'; return; }
     close();
-    onConfirmar(valor, data);
+    onConfirmar(valor, desconto, data);
   };
 }
 
@@ -890,11 +897,11 @@ function listaContasAReceber(){
   S.pedidos.forEach(p=>{
     (p.itens||[]).forEach(it=>{
       (it.parcelas||[]).forEach(parc=>{
-        if(parc.data_pgto) return; // já paga
+        const parcelaValor = Number(it.valor_parcela) || ((Number(it.valor_venda)||0) / (it.parcelas_qtd||1));
+        const valor = remanescenteParcela(parcelaValor, parc);
+        if(valor <= 0.005) return; // já paga ou quitada (com ou sem desconto)
         const venc = parcelaVencimentoEstimado(p, parc.n);
         const vencida = venc ? venc < hoje : false;
-        const parcelaValor = Number(it.valor_parcela) || ((Number(it.valor_venda)||0) / (it.parcelas_qtd||1));
-        const valor = Math.max(0, parcelaValor - (Number(parc.recebimento)||0));
         linhas.push({
           numero: p.numero,
           cliente: (S.clientes.get(p.codigo_cliente)||{}).nome || p.cliente_nome || '',
@@ -1776,7 +1783,8 @@ function renderPedidosLista(el){
     let enriched = list.map(p=>{
       const totalGeral = (p.itens||[]).reduce((s,it)=> s + (it.valor_venda||0)*(it.uni||1), 0);
       const totalRecebido = (p.itens||[]).reduce((s,it)=> s + (it.parcelas||[]).reduce((s2,pp)=>s2+(pp.recebimento||0),0), 0);
-      const quitado = totalRecebido >= totalGeral - 0.005;
+      const totalDesconto = (p.itens||[]).reduce((s,it)=> s + (it.parcelas||[]).reduce((s2,pp)=>s2+(pp.desconto||0),0), 0);
+      const quitado = (totalRecebido+totalDesconto) >= totalGeral - 0.005;
       const cliente = S.clientes.get(p.codigo_cliente);
       const clienteNome = (cliente?cliente.nome:'') || p.cliente_nome || '';
       const proximoPagamento = proximoPagamentoPedido(p);
@@ -1969,7 +1977,7 @@ function renderPedidoNovo(el){
       valor_compra: it.valor_custo||0,
       parcelas_qtd: it.parcelas_qtd||1,
       valor_parcela: it.valor_parcela||0,
-      parcelas: Array.from({length: it.parcelas_qtd||1}, (_,i)=>({ n:i+1, data_pgto:null, recibo:'', recebimento:0 })),
+      parcelas: Array.from({length: it.parcelas_qtd||1}, (_,i)=> blankParcela(i+1)),
     }));
     const doc = {
       numero, data_compra: document.getElementById('np-data').value || todayISO(),
@@ -2002,7 +2010,8 @@ function renderFichaHTML(pedido){
   const cliente = S.clientes.get(pedido.codigo_cliente);
   const totalGeral = (pedido.itens||[]).reduce((s,it)=> s + (it.valor_venda||0)*(it.uni||1), 0);
   const totalRecebido = (pedido.itens||[]).reduce((s,it)=> s + (it.parcelas||[]).reduce((s2,p)=>s2+(p.recebimento||0),0), 0);
-  const quitado = totalRecebido >= totalGeral - 0.005;
+  const totalDesconto = (pedido.itens||[]).reduce((s,it)=> s + (it.parcelas||[]).reduce((s2,p)=>s2+(p.desconto||0),0), 0);
+  const quitado = (totalRecebido+totalDesconto) >= totalGeral - 0.005;
   return `
     <div class="ficha">
       <div class="ficha-top">
@@ -2032,11 +2041,11 @@ function renderFichaHTML(pedido){
               const total = (it.valor_venda||0)*(it.uni||1);
               let saldo = total;
               return (it.parcelas||[]).map((p,pIdx)=>{
-                saldo -= (p.recebimento||0);
+                saldo -= (p.recebimento||0) + (p.desconto||0);
                 // Remanescente desta parcela específica (diferente do "saldo" acima, que é o
                 // saldo corrido do item inteiro) — decide se ainda cabe registrar pagamento
-                // nela, mesmo que já tenha recebido um valor parcial antes.
-                const remanescente = Math.max(0, (it.valor_parcela||0) - (p.recebimento||0));
+                // nela, mesmo que já tenha recebido um valor parcial antes ou ganhado desconto.
+                const remanescente = remanescenteParcela(it.valor_parcela, p);
                 const pagamentos = pagamentosDaParcela(p);
                 return `<tr>
                   <td>${pIdx===0?esc(it.descricao):''}</td>
@@ -2047,9 +2056,10 @@ function renderFichaHTML(pedido){
                   <td class="num">
                     ${fmtBRL(p.recebimento)}
                     ${pagamentos.length>1 ? `<div style="font-size:11px; color:var(--muted); font-weight:400;">${pagamentos.map(pg=>`${fmtBRL(pg.valor)}${pg.data?(' &middot; '+fmtDate(pg.data)):''}`).join('<br>')}</div>` : ''}
+                    ${(p.desconto||0)>0 ? `<div style="font-size:11px; color:var(--success); font-weight:400;">desconto ${fmtBRL(p.desconto)}</div>` : ''}
                   </td>
                   <td class="num">${fmtBRL(Math.max(saldo,0))}</td>
-                  <td>${remanescente>0.005 ? `<button class="btn ghost fp-pagar" data-item="${itIdx}" data-parc="${pIdx}" style="font-size:12px;">${(p.recebimento||0)>0?('+ Novo pagamento'):'Registrar pgto.'}</button>` : ''}</td>
+                  <td>${remanescente>0.005 ? `<button class="btn ghost fp-pagar" data-item="${itIdx}" data-parc="${pIdx}" style="font-size:12px;">${(p.recebimento||0)>0||(p.desconto||0)>0?('+ Novo pagamento'):'Registrar pgto.'}</button>` : ''}</td>
                 </tr>`;
               }).join('');
             }).join('')}
@@ -2057,7 +2067,7 @@ function renderFichaHTML(pedido){
         </table>
       </div>
       <div style="text-align:right; margin-top:12px; font-size:13.5px;">
-        Total do pedido: <strong>${fmtBRL(totalGeral)}</strong> &middot; Recebido: <strong>${fmtBRL(totalRecebido)}</strong> &middot; Saldo: <strong>${fmtBRL(Math.max(totalGeral-totalRecebido,0))}</strong>
+        Total do pedido: <strong>${fmtBRL(totalGeral)}</strong> &middot; Recebido: <strong>${fmtBRL(totalRecebido)}</strong>${totalDesconto>0?` &middot; Desconto: <strong>${fmtBRL(totalDesconto)}</strong>`:''} &middot; Saldo: <strong>${fmtBRL(Math.max(totalGeral-totalRecebido-totalDesconto,0))}</strong>
       </div>
     </div>
   `;
@@ -2113,7 +2123,7 @@ async function excluirFicha(pedido, container){
   }
 }
 
-function blankParcela(n){ return { n, data_pgto:null, recebimento:0, recibo:'', pagamentos:[] }; }
+function blankParcela(n){ return { n, data_pgto:null, recebimento:0, desconto:0, recibo:'', pagamentos:[] }; }
 // Lê a lista de pagamentos individuais de uma parcela — parcelas registradas antes
 // desse recurso existir só tinham um recebimento/data_pgto únicos; aqui isso é
 // tratado como se já fosse um pagamento avulso, sem precisar migrar os dados salvos.
@@ -2121,6 +2131,13 @@ function pagamentosDaParcela(p){
   if(Array.isArray(p.pagamentos)) return p.pagamentos;
   if((Number(p.recebimento)||0) > 0) return [{ data: p.data_pgto || null, valor: Number(p.recebimento)||0 }];
   return [];
+}
+// Quanto ainda falta pagar de uma parcela, já descontando tanto o que foi
+// efetivamente recebido quanto qualquer desconto concedido para quitá-la — usado
+// pra decidir se ainda cabe registrar pagamento nela e pra calcular saldos/status
+// "quitado" em todas as telas.
+function remanescenteParcela(valorParcela, p){
+  return Math.max(0, (Number(valorParcela)||0) - (Number(p.recebimento)||0) - (Number(p.desconto)||0));
 }
 function blankFichaItem(){
   return { codigo_produto:'', descricao:'', uni:1, valor_venda:0, valor_compra:0, parcelas_qtd:1, valor_parcela:0, parcelas:[blankParcela(1)] };
@@ -2178,7 +2195,8 @@ function openEditarFicha(pedido, container){
   function renderResumo(){
     const totalGeral = draft.itens.reduce((s,it)=> s + itemTotal(it)*(it.uni||1), 0);
     const totalRecebido = draft.itens.reduce((s,it)=> s + (it.parcelas||[]).reduce((s2,p)=> s2+(Number(p.recebimento)||0), 0), 0);
-    back.querySelector('#ef-resumo').innerHTML = `Total: <strong>${fmtBRL(totalGeral)}</strong> &middot; Recebido: <strong>${fmtBRL(totalRecebido)}</strong> &middot; Saldo: <strong>${fmtBRL(Math.max(totalGeral-totalRecebido,0))}</strong>`;
+    const totalDesconto = draft.itens.reduce((s,it)=> s + (it.parcelas||[]).reduce((s2,p)=> s2+(Number(p.desconto)||0), 0), 0);
+    back.querySelector('#ef-resumo').innerHTML = `Total: <strong>${fmtBRL(totalGeral)}</strong> &middot; Recebido: <strong>${fmtBRL(totalRecebido)}</strong>${totalDesconto>0?` &middot; Desconto: <strong>${fmtBRL(totalDesconto)}</strong>`:''} &middot; Saldo: <strong>${fmtBRL(Math.max(totalGeral-totalRecebido-totalDesconto,0))}</strong>`;
   }
 
   // Mostra a data de "Próximo pagamento" do rascunho (manual, se definida, senão a
@@ -2228,7 +2246,7 @@ function openEditarFicha(pedido, container){
     const total = itemTotal(it);
     let saldo = total;
     (it.parcelas||[]).forEach((p,pIdx)=>{
-      saldo -= (Number(p.recebimento)||0);
+      saldo -= (Number(p.recebimento)||0) + (Number(p.desconto)||0);
       const cell = back.querySelector(`.ef-saldo[data-it="${itIdx}"][data-p="${pIdx}"]`);
       if(cell) cell.textContent = fmtBRL(Math.max(saldo,0));
     });
@@ -2262,6 +2280,7 @@ function openEditarFicha(pedido, container){
                       <button type="button" class="iconbtn ef-add-pagamento" data-it="${itIdx}" data-p="${pIdx}" title="Somar um novo pagamento a esta parcela (o cliente pagou em mais de uma vez)">${ICONS.plus}</button>
                     </div>
                     <div class="ef-pagtos-list" data-it="${itIdx}" data-p="${pIdx}" style="text-align:right; margin-top:4px; font-size:11px; color:var(--muted);">${pagamentos.length>1 ? pagamentos.map(pg=>`${fmtBRL(pg.valor)}${pg.data?(' &middot; '+fmtDate(pg.data)):''}`).join('<br>') : ''}</div>
+                    <div class="ef-desconto-txt" data-it="${itIdx}" data-p="${pIdx}" style="text-align:right; margin-top:4px; font-size:11px; color:var(--success);">${(p.desconto||0)>0 ? ('desconto '+fmtBRL(p.desconto)) : ''}</div>
                   </td>
                   <td class="num ef-saldo" data-it="${itIdx}" data-p="${pIdx}">R$ 0,00</td>
                 </tr>`;
@@ -2307,20 +2326,24 @@ function openEditarFicha(pedido, container){
         const it2 = +btn.dataset.it, p2 = +btn.dataset.p;
         const parcela = draft.itens[it2].parcelas[p2];
         const jaRecebido = Number(parcela.recebimento)||0;
+        const jaDesconto = Number(parcela.desconto)||0;
         const valorParcela = Number(draft.itens[it2].valor_parcela)||0;
-        abrirNovoPagamentoParcela(jaRecebido, valorParcela, (valor, data)=>{
+        abrirNovoPagamentoParcela(jaRecebido, jaDesconto, valorParcela, (valor, desconto, data)=>{
           // Guarda cada pagamento como lançamento próprio (data + valor) — é o que
           // permite mostrar na interface todos os pagamentos feitos, não só a soma.
-          const pagamentos = pagamentosDaParcela(parcela);
-          pagamentos.push({ data, valor });
-          parcela.pagamentos = pagamentos;
-          parcela.recebimento = pagamentos.reduce((s,pg)=> s+(Number(pg.valor)||0), 0);
+          if(valor>0){
+            const pagamentos = pagamentosDaParcela(parcela);
+            pagamentos.push({ data, valor });
+            parcela.pagamentos = pagamentos;
+            parcela.recebimento = pagamentos.reduce((s,pg)=> s+(Number(pg.valor)||0), 0);
+          }
+          if(desconto>0) parcela.desconto = jaDesconto + desconto;
           parcela.data_pgto = data;
           card.outerHTML = renderItemCard(itIdx);
           wireItemCard(itIdx);
           recomputeSaldos(itIdx);
           atualizarProximoBtn();
-          toast('Pagamento somado à parcela.', 'ok');
+          toast(desconto>0 ? 'Pagamento e desconto somados à parcela.' : 'Pagamento somado à parcela.', 'ok');
         });
       };
     });
@@ -2457,25 +2480,32 @@ function openRegistrarPagamento(pedido, itIdx, pIdx, container){
   // é o que permite registrar vários pagamentos parciais na mesma parcela até ela
   // ficar quitada, sem precisar somar os valores de cabeça.
   const jaRecebido = Number(pedido.itens[itIdx].parcelas[pIdx].recebimento)||0;
+  const jaDesconto = Number(pedido.itens[itIdx].parcelas[pIdx].desconto)||0;
   const valorParcela = Number(pedido.itens[itIdx].valor_parcela)||0;
-  const remanescente = Math.max(0, valorParcela - jaRecebido);
+  const remanescente = Math.max(0, valorParcela - jaRecebido - jaDesconto);
   const back = document.createElement('div');
   back.className = 'modal-backdrop';
   back.innerHTML = `
     <div class="modal" style="max-width:420px;">
-      <div class="modal-head"><h3>${jaRecebido>0?'Novo pagamento nesta parcela':'Registrar pagamento'}</h3><button class="iconbtn" id="rp-close">&times;</button></div>
+      <div class="modal-head"><h3>${(jaRecebido>0||jaDesconto>0)?'Novo pagamento nesta parcela':'Registrar pagamento'}</h3><button class="iconbtn" id="rp-close">&times;</button></div>
       <div class="modal-body">
-        ${jaRecebido>0 ? `<div class="alertbox info">${ICONS.check}<div>Já recebido nesta parcela: <strong>${fmtBRL(jaRecebido)}</strong> &middot; Saldo: <strong>${fmtBRL(remanescente)}</strong>. O valor abaixo será somado ao que já foi recebido.</div></div>` : ''}
+        ${(jaRecebido>0||jaDesconto>0) ? `<div class="alertbox info">${ICONS.check}<div>Já recebido nesta parcela: <strong>${fmtBRL(jaRecebido)}</strong>${jaDesconto>0?` &middot; Desconto já concedido: <strong>${fmtBRL(jaDesconto)}</strong>`:''} &middot; Saldo: <strong>${fmtBRL(remanescente)}</strong>. O valor pago é somado ao que já foi recebido.</div></div>` : ''}
         <div id="rp-error"></div>
         <div class="field-grid" style="grid-template-columns:1fr;">
           <div class="field"><label>Data do pagamento</label><input id="rp-data" type="date" value="${todayISO()}"></div>
-          <div class="field"><label>Valor deste pagamento</label><input id="rp-valor" inputmode="decimal" value="${fmtNumBR(remanescente)}"></div>
+          <div class="field"><label>Valor pago</label><input id="rp-valor" inputmode="decimal" value="${fmtNumBR(remanescente)}"></div>
+          <div class="field">
+            <label>Desconto concedido (opcional)</label>
+            <input id="rp-desconto" inputmode="decimal" value="${fmtNumBR(0)}">
+            <div class="hint">Use para quitar o pedido dando desconto no saldo restante — some ao valor pago para fechar a conta.</div>
+          </div>
         </div>
       </div>
       <div class="modal-foot"><button class="btn" id="rp-cancel">Cancelar</button><button class="btn primary" id="rp-save">${ICONS.check} Salvar</button></div>
     </div>`;
   document.body.appendChild(back);
   maskMoneyInput(back.querySelector('#rp-valor'));
+  maskMoneyInput(back.querySelector('#rp-desconto'));
   const close = ()=> back.remove();
   back.querySelector('#rp-close').onclick = close;
   back.querySelector('#rp-cancel').onclick = close;
@@ -2487,7 +2517,9 @@ function openRegistrarPagamento(pedido, itIdx, pIdx, container){
     errBox.innerHTML = '';
     const data = back.querySelector('#rp-data').value;
     const valor = parseNumBR(back.querySelector('#rp-valor').value);
+    const desconto = parseNumBR(back.querySelector('#rp-desconto').value);
     if(!data){ errBox.innerHTML = '<div class="alertbox danger">'+ICONS.warn+'<div>Informe a data do pagamento.</div></div>'; errBox.scrollIntoView({behavior:'smooth', block:'center'}); toast('Erro no salvamento', 'err'); return; }
+    if(valor<=0 && desconto<=0){ errBox.innerHTML = '<div class="alertbox danger">'+ICONS.warn+'<div>Informe um valor pago ou um desconto maior que zero.</div></div>'; errBox.scrollIntoView({behavior:'smooth', block:'center'}); toast('Erro no salvamento', 'err'); return; }
     // Never mutate `pedido` in place: documents that came from the db cache/snapshot
     // can be frozen/immutable, and writing into their nested fields throws. Build a
     // fresh, plain clone, mutate that, and only adopt it after a successful save.
@@ -2495,14 +2527,20 @@ function openRegistrarPagamento(pedido, itIdx, pIdx, container){
     const parcelaAtualizada = updated.itens[itIdx].parcelas[pIdx];
     // Guarda cada pagamento como um lançamento próprio (data + valor), em vez de só
     // o total — é o que permite mostrar na interface todos os pagamentos feitos
-    // nessa parcela, não só a soma.
-    const pagamentos = pagamentosDaParcela(parcelaAtualizada);
-    pagamentos.push({ data, valor });
-    parcelaAtualizada.pagamentos = pagamentos;
-    const novoRecebimento = pagamentos.reduce((s,pg)=> s+(Number(pg.valor)||0), 0);
-    // Um valor recebido zerado nunca fica marcado como pago (mantém "pendente").
-    parcelaAtualizada.data_pgto = novoRecebimento > 0 ? data : null;
-    parcelaAtualizada.recebimento = novoRecebimento;
+    // nessa parcela, não só a soma. Desconto é guardado à parte (não é dinheiro
+    // recebido), mas conta junto pra decidir se a parcela está quitada.
+    let novoRecebimento = jaRecebido;
+    if(valor>0){
+      const pagamentos = pagamentosDaParcela(parcelaAtualizada);
+      pagamentos.push({ data, valor });
+      parcelaAtualizada.pagamentos = pagamentos;
+      novoRecebimento = pagamentos.reduce((s,pg)=> s+(Number(pg.valor)||0), 0);
+      parcelaAtualizada.recebimento = novoRecebimento;
+    }
+    const novoDesconto = desconto>0 ? jaDesconto+desconto : jaDesconto;
+    if(desconto>0) parcelaAtualizada.desconto = novoDesconto;
+    // Um valor recebido/descontado zerado nunca fica marcado como pago (mantém "pendente").
+    parcelaAtualizada.data_pgto = (novoRecebimento+novoDesconto) > 0 ? data : null;
     saveBtn.disabled = true;
     saveBtn.innerHTML = 'Salvando…';
     try{
@@ -2781,7 +2819,7 @@ function exportarPedidosCSV(){
           numero: p.numero, data_compra: p.data_compra, cliente: (S.clientes.get(p.codigo_cliente)||{}).nome || p.cliente_nome || '', codigo_cliente: p.codigo_cliente,
           forma_pagamento: p.forma_pagamento, produto: it.descricao, codigo_produto: it.codigo_produto,
           uni: it.uni, valor_parcela: it.valor_parcela, parcelaLabel: parc.n+'/'+it.parcelas_qtd,
-          data_pgto: parc.data_pgto, recebimento: parc.recebimento,
+          data_pgto: parc.data_pgto, recebimento: parc.recebimento, desconto: parc.desconto,
         });
       });
     });
@@ -2799,6 +2837,7 @@ function exportarPedidosCSV(){
     {key:'parcelaLabel', label:'Parcela'},
     {label:'Data pgto.', value:r=> r.data_pgto ? fmtDate(r.data_pgto) : ''},
     {label:'Recebimento', value:r=>fmtBRL(r.recebimento)},
+    {label:'Desconto', value:r=>fmtBRL(r.desconto)},
   ], linhas);
   baixarArquivo('pedidos-'+todayISO()+'.csv', csv, 'text/csv;charset=utf-8;');
 }
