@@ -1,0 +1,312 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ramos de Oliveira &middot; Clientes</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800&family=Roboto+Condensed:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head><body>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="assets/supabase-client.js"></script>
+<script src="assets/nav.js"></script>
+<script>
+(async function(){
+  const session = await RO.requireAuth();
+  if(!session) return;
+  RO_NAV.mount('clientes');
+  RO_NAV.setTitle('Clientes', 'Cadastro de clientes', RO_NAV.backHomeBtn());
+
+  const ICONS = RO_NAV.ICONS;
+  const esc = RO.esc, fmtDate = RO.fmtDate, onlyDigits = RO.onlyDigits, normName = RO.normName, toast = RO.toast, todayISO = RO.todayISO;
+
+  const S = { clientes: new Map(), loaded: false };
+  const ui = {
+    fCodigo:'', fNome:'', fCpf:'', page:1, pageSize:50,
+    selected: new Set(), screenOptsOpen: false,
+    cols: { cpf:true, cidade:true, telefone:true, cadastro:true },
+    sortKey: null, sortDir: 'asc',
+  };
+  const NUMERIC_KEYS = new Set(['codigo']);
+
+  const el = document.getElementById('content');
+  el.innerHTML = '<div class="empty"><div class="spinner" style="margin:0 auto 10px;"></div>Carregando clientes…</div>';
+  try{
+    (await RO.loadClientes()).forEach(c=> S.clientes.set(c.codigo, c));
+    S.loaded = true;
+  }catch(e){
+    el.innerHTML = '<div class="empty">'+ICONS.warn+'<div>Erro ao carregar clientes: '+esc(e.message)+'</div></div>';
+    return;
+  }
+
+  function findCpfDuplicates(){
+    const byCpf = new Map();
+    S.clientes.forEach(c=>{
+      const cpf = onlyDigits(c.cpf_cnpj);
+      if(!cpf) return;
+      if(!byCpf.has(cpf)) byCpf.set(cpf, []);
+      byCpf.get(cpf).push(c);
+    });
+    const dups = [];
+    byCpf.forEach((list,cpf)=>{ if(list.length>1) dups.push({cpf,list}); });
+    return dups;
+  }
+
+  function render(){
+    const dups = findCpfDuplicates();
+    const fCodigo = ui.fCodigo.trim().toLowerCase();
+    const fNome = ui.fNome.trim().toLowerCase();
+    const fCpf = onlyDigits(ui.fCpf);
+    let list = Array.from(S.clientes.values());
+    if(fCodigo) list = list.filter(c => String(c.codigo).toLowerCase().includes(fCodigo) || (c.pasta||'').toLowerCase().includes(fCodigo));
+    if(fNome) list = list.filter(c => (c.nome||'').toLowerCase().includes(fNome));
+    if(fCpf) list = list.filter(c => onlyDigits(c.cpf_cnpj).includes(fCpf));
+    list = RO.sortRows(list, ui, (c,key)=>c[key], NUMERIC_KEYS, (a,b)=> (a.nome||'').localeCompare(b.nome||''));
+    const total = list.length;
+    const pages = Math.max(1, Math.ceil(total/ui.pageSize));
+    ui.page = Math.min(ui.page, pages);
+    const start = (ui.page-1)*ui.pageSize;
+    const pageItems = list.slice(start, start+ui.pageSize);
+
+    const headerCells = ['<th class="chk-col"><input type="checkbox" id="cli-check-all"></th>', RO.thSort('Cód.','codigo',ui,NUMERIC_KEYS), RO.thSort('Nome','nome',ui,NUMERIC_KEYS)];
+    if(ui.cols.cpf) headerCells.push(RO.thSort('CPF/CNPJ','cpf_cnpj',ui,NUMERIC_KEYS));
+    if(ui.cols.cidade) headerCells.push(RO.thSort('Cidade/UF','cidade',ui,NUMERIC_KEYS));
+    if(ui.cols.telefone) headerCells.push(RO.thSort('Telefone','telefone',ui,NUMERIC_KEYS));
+    if(ui.cols.cadastro) headerCells.push(RO.thSort('Cadastro','data_cadastro',ui,NUMERIC_KEYS));
+    headerCells.push('<th></th>');
+
+    el.innerHTML = `
+      ${dups.length ? `<div class="alertbox warning">${ICONS.warn}<div><strong>${dups.length} possível(is) duplicidade(s) de CPF/CNPJ:</strong> ${dups.map(d=>d.list.map(c=>esc(c.nome)+' (cód. '+c.codigo+')').join(' &harr; ')).join('; ')}. Revise e mantenha apenas um cadastro por pessoa.</div></div>` : ''}
+      <div class="toolbar">
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <div class="searchbar" style="min-width:100px; width:100px;">${ICONS.search}<input id="cli-f-codigo" placeholder="Cód." value="${esc(ui.fCodigo)}"></div>
+          <div class="searchbar" style="min-width:220px; width:260px;">${ICONS.search}<input id="cli-f-nome" placeholder="Nome" value="${esc(ui.fNome)}"></div>
+          <div class="searchbar" style="min-width:170px; width:190px;">${ICONS.search}<input id="cli-f-cpf" placeholder="CPF/CNPJ" value="${esc(ui.fCpf)}"></div>
+        </div>
+        <div class="toolbar-right">
+          <span style="color:var(--muted); font-size:12.5px;">${total} cliente${total===1?'':'s'}</span>
+          <div class="screenopts-wrap">
+            <button class="btn screenopts-btn${ui.screenOptsOpen?' open':''}" id="cli-so-btn">Opções de tela ${ICONS.down}</button>
+            ${ui.screenOptsOpen ? `<div class="screenopts-panel" id="cli-so-panel">
+              <label class="so-title">Itens por página</label>
+              <input type="number" min="5" max="500" id="cli-so-pagesize" value="${ui.pageSize}">
+              <label class="so-title">Colunas visíveis</label>
+              <label class="so-col"><input type="checkbox" class="cli-so-col" data-col="cpf" ${ui.cols.cpf?'checked':''}> CPF/CNPJ</label>
+              <label class="so-col"><input type="checkbox" class="cli-so-col" data-col="cidade" ${ui.cols.cidade?'checked':''}> Cidade/UF</label>
+              <label class="so-col"><input type="checkbox" class="cli-so-col" data-col="telefone" ${ui.cols.telefone?'checked':''}> Telefone</label>
+              <label class="so-col"><input type="checkbox" class="cli-so-col" data-col="cadastro" ${ui.cols.cadastro?'checked':''}> Cadastro</label>
+            </div>` : ''}
+          </div>
+          <button class="btn primary" id="cli-new">${ICONS.plus} Novo cliente</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="bulkbar">
+          <select id="cli-bulk-action">
+            <option value="">Ações em massa</option>
+            <option value="excluir">Excluir selecionados</option>
+          </select>
+          <button class="btn" id="cli-bulk-apply">Aplicar</button>
+          <span>${ui.selected.size} selecionado${ui.selected.size===1?'':'s'}</span>
+        </div>
+        <div class="table-wrap">
+          <table class="data">
+            <thead><tr>${headerCells.join('')}</tr></thead>
+            <tbody>
+              ${pageItems.length ? pageItems.map(c=>`
+                <tr>
+                  <td class="chk-col"><input type="checkbox" class="cli-check" value="${esc(c.codigo)}" ${ui.selected.has(c.codigo)?'checked':''}></td>
+                  <td>${esc(c.codigo)}${c.pasta?`<br><span style="color:var(--muted); font-size:11px;">${esc(c.pasta)}</span>`:''}</td>
+                  <td>${esc(c.nome)}</td>
+                  ${ui.cols.cpf?`<td>${esc(c.cpf_cnpj)||'—'}</td>`:''}
+                  ${ui.cols.cidade?`<td>${esc(c.cidade)}${c.estado?('/'+esc(c.estado)):''}</td>`:''}
+                  ${ui.cols.telefone?`<td>${esc(c.telefone)||'—'}</td>`:''}
+                  ${ui.cols.cadastro?`<td>${fmtDate(c.data_cadastro)}</td>`:''}
+                  <td><div class="rowactions">
+                    <button class="iconbtn" data-edit="${esc(c.codigo)}" title="Editar">${ICONS.edit}</button>
+                    <button class="iconbtn" data-del="${esc(c.codigo)}" title="Excluir">${ICONS.trash}</button>
+                  </div></td>
+                </tr>`).join('') : `<tr><td colspan="${headerCells.length}"><div class="empty">${ICONS.users}<div>Nenhum cliente encontrado.</div></div></td></tr>`}
+            </tbody>
+          </table>
+        </div>
+        <div class="pager" style="padding:12px 18px;">
+          <span>Página ${ui.page} de ${pages}</span>
+          <div style="display:flex; gap:8px;">
+            <button class="btn" ${ui.page<=1?'disabled':''} id="cli-prev">Anterior</button>
+            <button class="btn" ${ui.page>=pages?'disabled':''} id="cli-next">Próxima</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.getElementById('cli-f-codigo').oninput = (e)=>{ ui.fCodigo = e.target.value; ui.page=1; RO.rerenderKeepingFocus(render); };
+    document.getElementById('cli-f-nome').oninput = (e)=>{ ui.fNome = e.target.value; ui.page=1; RO.rerenderKeepingFocus(render); };
+    document.getElementById('cli-f-cpf').oninput = (e)=>{ ui.fCpf = e.target.value; ui.page=1; RO.rerenderKeepingFocus(render); };
+    document.getElementById('cli-new').onclick = ()=> openClienteModal(null);
+    RO.wireSortHeaders(el, ui, NUMERIC_KEYS, render);
+    const prevBtn = document.getElementById('cli-prev'); if(prevBtn) prevBtn.onclick = ()=>{ ui.page--; render(); };
+    const nextBtn = document.getElementById('cli-next'); if(nextBtn) nextBtn.onclick = ()=>{ ui.page++; render(); };
+    el.querySelectorAll('[data-edit]').forEach(b=> b.onclick = ()=> openClienteModal(S.clientes.get(b.dataset.edit)));
+    el.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=> deleteCliente(b.dataset.del));
+
+    document.getElementById('cli-so-btn').onclick = ()=>{ ui.screenOptsOpen = !ui.screenOptsOpen; render(); };
+    const soPageSize = document.getElementById('cli-so-pagesize');
+    if(soPageSize) soPageSize.onchange = (e)=>{
+      let v = parseInt(e.target.value,10)||50;
+      v = Math.min(500, Math.max(5, v));
+      ui.pageSize = v; ui.page = 1; render();
+    };
+    el.querySelectorAll('.cli-so-col').forEach(chk=>{
+      chk.onchange = (e)=>{ ui.cols[e.target.dataset.col] = e.target.checked; render(); };
+    });
+
+    const checkAll = document.getElementById('cli-check-all');
+    const pageCodes = pageItems.map(c=>c.codigo);
+    function updateBulkUI(){
+      const countEl = el.querySelector('.bulkbar span');
+      if(countEl) countEl.textContent = ui.selected.size+' selecionado'+(ui.selected.size===1?'':'s');
+      if(checkAll) checkAll.checked = pageCodes.length>0 && pageCodes.every(cd=>ui.selected.has(cd));
+    }
+    if(checkAll){
+      checkAll.checked = pageCodes.length>0 && pageCodes.every(cd=>ui.selected.has(cd));
+      checkAll.onchange = (e)=>{
+        pageCodes.forEach(cd=> e.target.checked ? ui.selected.add(cd) : ui.selected.delete(cd));
+        el.querySelectorAll('.cli-check').forEach(chk=> chk.checked = e.target.checked);
+        updateBulkUI();
+      };
+    }
+    el.querySelectorAll('.cli-check').forEach(chk=>{
+      chk.onchange = (e)=>{
+        e.target.checked ? ui.selected.add(e.target.value) : ui.selected.delete(e.target.value);
+        updateBulkUI();
+      };
+    });
+    document.getElementById('cli-bulk-apply').onclick = async ()=>{
+      const action = document.getElementById('cli-bulk-action').value;
+      if(!action){ toast('Selecione uma ação em massa.', 'err'); return; }
+      if(ui.selected.size===0){ toast('Selecione ao menos um cliente.', 'err'); return; }
+      if(action==='excluir') await bulkExcluirClientes();
+    };
+
+    async function bulkExcluirClientes(){
+      const codigos = Array.from(ui.selected);
+      if(!confirm('Excluir '+codigos.length+' cliente(s) selecionado(s)? Esta ação não pode ser desfeita.')) return;
+      let ok=0, fail=0;
+      for(const codigo of codigos){
+        const { error } = await RO.sb.from('clientes').delete().eq('codigo', codigo);
+        if(error){ console.error('Erro ao excluir cliente '+codigo+':', error); fail++; continue; }
+        S.clientes.delete(codigo);
+        ui.selected.delete(codigo);
+        ok++;
+      }
+      toast(fail===0 ? ok+' cliente(s) excluído(s).' : ok+' excluído(s), '+fail+' com erro.', fail===0?'ok':'err');
+      render();
+    }
+  }
+
+  async function deleteCliente(codigo){
+    const c = S.clientes.get(codigo);
+    if(!confirm('Excluir o cliente "'+(c?c.nome:codigo)+'"? Esta ação não pode ser desfeita.')) return;
+    const { error } = await RO.sb.from('clientes').delete().eq('codigo', codigo);
+    if(error){ toast('Erro ao excluir: '+error.message, 'err'); return; }
+    S.clientes.delete(codigo);
+    ui.selected.delete(codigo);
+    toast('Cliente excluído.', 'ok');
+    render();
+  }
+
+  function openClienteModal(existing){
+    const isEdit = !!existing;
+    const c = existing || { codigo: RO.nextCodigo(S.clientes), nome:'', rg:'', cpf_cnpj:'', rua:'', numero:'', cep:'', bairro:'', telefone:'', cidade:'', estado:'', data_cadastro: todayISO() };
+
+    const back = document.createElement('div');
+    back.className = 'modal-backdrop';
+    back.innerHTML = `
+      <div class="modal">
+        <div class="modal-head"><h3>${isEdit?'Editar cliente':'Novo cliente'}</h3><button class="iconbtn" id="cm-close">&times;</button></div>
+        <div class="modal-body">
+          <div id="cm-error"></div>
+          <div class="field-grid">
+            <div class="field"><label>Código</label><input id="f-codigo" value="${esc(c.codigo)}" ${isEdit?'disabled':''}></div>
+            <div class="field span2"><label>Nome completo *</label><input id="f-nome" value="${esc(c.nome)}"></div>
+            <div class="field"><label>CPF / CNPJ</label><input id="f-cpf" value="${esc(c.cpf_cnpj)}" placeholder="000.000.000-00"></div>
+            <div class="field"><label>RG</label><input id="f-rg" value="${esc(c.rg)}"></div>
+            <div class="field"><label>Telefone</label><input id="f-telefone" value="${esc(c.telefone)}"></div>
+            <div class="field span2"><label>Rua</label><input id="f-rua" value="${esc(c.rua)}"></div>
+            <div class="field"><label>Número</label><input id="f-numero" value="${esc(c.numero)}"></div>
+            <div class="field"><label>Bairro</label><input id="f-bairro" value="${esc(c.bairro)}"></div>
+            <div class="field"><label>CEP</label><input id="f-cep" value="${esc(c.cep)}"></div>
+            <div class="field"><label>Cidade</label><input id="f-cidade" value="${esc(c.cidade)}"></div>
+            <div class="field"><label>Estado</label><input id="f-estado" maxlength="2" style="text-transform:uppercase" value="${esc(c.estado)}"></div>
+            <div class="field"><label>Data de cadastro</label><input id="f-data" type="date" value="${esc(c.data_cadastro)}"></div>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn" id="cm-cancel">Cancelar</button>
+          <button class="btn primary" id="cm-save">${ICONS.check} Salvar</button>
+        </div>
+      </div>`;
+    document.body.appendChild(back);
+    const close = ()=> back.remove();
+    back.querySelector('#cm-close').onclick = close;
+    back.querySelector('#cm-cancel').onclick = close;
+    back.onclick = (e)=>{ if(e.target===back) close(); };
+
+    back.querySelector('#cm-save').onclick = async ()=>{
+      const codigo = back.querySelector('#f-codigo').value.trim();
+      const nome = back.querySelector('#f-nome').value.trim();
+      const cpf = back.querySelector('#f-cpf').value.trim();
+      const errBox = back.querySelector('#cm-error');
+      errBox.innerHTML = '';
+
+      if(!codigo || !nome){
+        errBox.innerHTML = '<div class="alertbox danger">'+ICONS.warn+'<div>Código e nome são obrigatórios.</div></div>';
+        return;
+      }
+      if(!isEdit && S.clientes.has(codigo)){
+        errBox.innerHTML = '<div class="alertbox danger">'+ICONS.warn+'<div>Já existe um cliente com o código '+esc(codigo)+'.</div></div>';
+        return;
+      }
+      const cpfDigits = onlyDigits(cpf);
+      if(cpfDigits){
+        let conflict = null;
+        S.clientes.forEach(other=>{
+          if(other.codigo!==codigo && onlyDigits(other.cpf_cnpj)===cpfDigits) conflict = other;
+        });
+        if(conflict){
+          errBox.innerHTML = '<div class="alertbox danger">'+ICONS.warn+'<div>Esse CPF/CNPJ já está cadastrado para <strong>'+esc(conflict.nome)+'</strong> (código '+esc(conflict.codigo)+'). Verifique antes de salvar.</div></div>';
+          return;
+        }
+      }
+      if(!isEdit){
+        let sameName = null;
+        S.clientes.forEach(other=>{ if(normName(other.nome)===normName(nome)) sameName = other; });
+        if(sameName && !confirm('Já existe um cliente chamado "'+sameName.nome+'" (código '+sameName.codigo+'). Deseja cadastrar mesmo assim?')) return;
+      }
+
+      const data = {
+        codigo, nome: nome.toUpperCase(),
+        rg: back.querySelector('#f-rg').value.trim(),
+        cpf_cnpj: cpf,
+        rua: back.querySelector('#f-rua').value.trim(),
+        numero: back.querySelector('#f-numero').value.trim(),
+        cep: back.querySelector('#f-cep').value.trim(),
+        bairro: back.querySelector('#f-bairro').value.trim(),
+        telefone: back.querySelector('#f-telefone').value.trim(),
+        cidade: back.querySelector('#f-cidade').value.trim(),
+        estado: back.querySelector('#f-estado').value.trim().toUpperCase(),
+        data_cadastro: back.querySelector('#f-data').value || todayISO(),
+      };
+      const { error } = isEdit
+        ? await RO.sb.from('clientes').update(data).eq('codigo', codigo)
+        : await RO.sb.from('clientes').insert(data);
+      if(error){ errBox.innerHTML = '<div class="alertbox danger">'+ICONS.warn+'<div>Erro ao salvar: '+esc(error.message)+'</div></div>'; return; }
+      S.clientes.set(codigo, data);
+      toast(isEdit?'Cliente atualizado.':'Cliente cadastrado.', 'ok');
+      close();
+      render();
+    };
+  }
+
+  render();
+})();
+</script>
+</body></html>

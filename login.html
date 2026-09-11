@@ -1,0 +1,96 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ramos de Oliveira &middot; Acesso</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800&family=Roboto+Condensed:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head><body>
+
+<div class="auth-shell">
+  <div class="auth-card">
+    <div class="auth-brand">
+      <div class="brand-name" style="text-transform:uppercase; letter-spacing:.05em; font-family:'Roboto Condensed',sans-serif; font-weight:700;">Ramos de Oliveira</div>
+      <div class="brand-sub" style="font-size:11px; margin-top:4px; letter-spacing:.04em; text-transform:uppercase;">Enxovais &middot; Sistema</div>
+    </div>
+    <div class="auth-tabs">
+      <button type="button" id="tab-login" class="active">Entrar</button>
+      <button type="button" id="tab-signup">Criar conta</button>
+    </div>
+    <div id="auth-error"></div>
+
+    <form id="form-login">
+      <div class="field"><label>E-mail</label><input id="li-email" type="email" required autocomplete="username"></div>
+      <div class="field"><label>Senha</label><input id="li-senha" type="password" required autocomplete="current-password"></div>
+      <button type="submit" class="btn primary" id="li-submit">Entrar</button>
+    </form>
+
+    <form id="form-signup" hidden>
+      <div class="field"><label>Nome</label><input id="su-nome" required autocomplete="name"></div>
+      <div class="field"><label>E-mail</label><input id="su-email" type="email" required autocomplete="username"></div>
+      <div class="field"><label>Senha</label><input id="su-senha" type="password" required minlength="6" autocomplete="new-password"></div>
+      <div style="font-size:11.5px; color:var(--muted); margin-bottom:10px;">Mínimo de 6 caracteres.</div>
+      <button type="submit" class="btn primary" id="su-submit">Criar conta</button>
+    </form>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="assets/supabase-client.js"></script>
+<script src="assets/nav.js"></script>
+<script>
+(async function(){
+  const { data: { session } } = await RO.sb.auth.getSession();
+  if(session){ window.location.href = 'index.html'; return; }
+
+  const tabLogin = document.getElementById('tab-login');
+  const tabSignup = document.getElementById('tab-signup');
+  const formLogin = document.getElementById('form-login');
+  const formSignup = document.getElementById('form-signup');
+  const errBox = document.getElementById('auth-error');
+
+  function showLogin(){
+    tabLogin.classList.add('active'); tabSignup.classList.remove('active');
+    formLogin.hidden = false; formSignup.hidden = true;
+    errBox.innerHTML = '';
+  }
+  function showSignup(){
+    tabSignup.classList.add('active'); tabLogin.classList.remove('active');
+    formSignup.hidden = false; formLogin.hidden = true;
+    errBox.innerHTML = '';
+  }
+  tabLogin.onclick = showLogin;
+  tabSignup.onclick = showSignup;
+
+  function setError(msg){
+    errBox.innerHTML = msg ? `<div class="alertbox danger">${RO_NAV.ICONS.warn}<div>${RO.esc(msg)}</div></div>` : '';
+  }
+
+  formLogin.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    setError('');
+    const email = document.getElementById('li-email').value.trim();
+    const senha = document.getElementById('li-senha').value;
+    const btn = document.getElementById('li-submit');
+    btn.disabled = true; btn.textContent = 'Entrando…';
+    const { error } = await RO.sb.auth.signInWithPassword({ email, password: senha });
+    btn.disabled = false; btn.textContent = 'Entrar';
+    if(error){ setError(error.message === 'Invalid login credentials' ? 'E-mail ou senha incorretos.' : error.message); return; }
+    window.location.href = 'index.html';
+  });
+
+  formSignup.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    setError('');
+    const nome = document.getElementById('su-nome').value.trim();
+    const email = document.getElementById('su-email').value.trim();
+    const senha = document.getElementById('su-senha').value;
+    const btn = document.getElementById('su-submit');
+    btn.disabled = true; btn.textContent = 'Criando conta…';
+    const { data, error } = await RO.sb.auth.signUp({ email, password: senha, options: { data: { nome } } });
+    btn.disabled = false; btn.textContent = 'Criar conta';
+    if(error){ setError(error.message); return; }
+    if(data.session){ window.location.href = 'index.html'; return; }
+    errBox.innerHTML = `<div class="alertbox info">${RO_NAV.ICONS.check}<div>Conta criada. Verifique seu e-mail para confirmar o acesso antes de entrar.</div></div>`;
+    showLogin();
+  });
+})();
+</script>
+</body></html>

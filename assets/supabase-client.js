@@ -111,6 +111,146 @@ function rerenderKeepingFocus(renderFn){
   }
 }
 
+/* ---------------- carregamento de dados (tabelas completas em memória) ---------------- */
+// Busca todas as linhas de uma tabela, paginando com .range() (o PostgREST limita
+// a 1000 linhas por resposta) — equivalente ao loadCollectionAll do Artifact antigo.
+async function loadAllRows(table, select, orderCol){
+  const pageSize = 1000;
+  let from = 0;
+  const all = [];
+  while(true){
+    const { data, error } = await sb.from(table).select(select||'*').order(orderCol||'codigo').range(from, from+pageSize-1);
+    if(error) throw error;
+    all.push(...data);
+    if(data.length < pageSize) break;
+    from += pageSize;
+  }
+  return all;
+}
+async function loadClientes(){ return loadAllRows('clientes', '*', 'codigo'); }
+async function loadClientesMap(){
+  const map = new Map();
+  (await loadClientes()).forEach(c=> map.set(c.codigo, c));
+  return map;
+}
+async function loadProdutos(){ return loadAllRows('produtos', '*', 'codigo'); }
+async function loadProdutosMap(){
+  const map = new Map();
+  (await loadProdutos()).forEach(p=> map.set(p.codigo, p));
+  return map;
+}
+// Pedidos com itens/parcelas/pagamentos aninhados via embedding do PostgREST — a
+// mesma forma de documento aninhado que o Artifact antigo guardava no Firestore
+// (pedido.itens[].parcelas[].pagamentos[]), só que remontada a partir de 4 tabelas
+// normalizadas. `numero` fica sempre até 496 registros no topo (dentro do limite
+// de 1000 por página do PostgREST), então não precisa paginar aqui.
+const PEDIDO_SELECT = 'numero,data_compra,codigo_cliente,cliente_nome,forma_pagamento,condicao_pgto,proximo_pagamento_override,'+
+  'itens:pedido_itens(id,codigo_produto,descricao,uni,valor_venda,valor_compra,parcelas_qtd,valor_parcela,'+
+  'parcelas(id,n,data_pgto,recebimento,desconto,recibo,pagamentos(id,data,valor)))';
+async function loadPedidos(){
+  const { data, error } = await sb.from('pedidos').select(PEDIDO_SELECT).order('numero', { ascending:false });
+  if(error) throw error;
+  // ordena itens e parcelas (o PostgREST não garante ordem dentro do embed)
+  data.forEach(p=>{
+    (p.itens||[]).sort((a,b)=>a.id-b.id);
+    (p.itens||[]).forEach(it=> (it.parcelas||[]).sort((a,b)=>a.n-b.n));
+  });
+  return data;
+}
+async function loadPedidosMap(){
+  const map = new Map();
+  (await loadPedidos()).forEach(p=> map.set(String(p.numero), p));
+  return map;
+}
+async function loadPedidoByNumero(numero){
+  const { data, error } = await sb.from('pedidos').select(PEDIDO_SELECT).eq('numero', numero).maybeSingle();
+  if(error) throw error;
+  if(data){
+    (data.itens||[]).sort((a,b)=>a.id-b.id);
+    (data.itens||[]).forEach(it=> (it.parcelas||[]).sort((a,b)=>a.n-b.n));
+  }
+  return data;
+}
+
+/* ---------------- regras de negócio (portadas do Artifact) ---------------- */
+function nextCodigo(map){
+  let max = 0;
+  map.forEach((v,k)=>{ const n = parseInt(k,10); if(!isNaN(n) && /^\d+$/.test(String(k)) && n>max) max=n; });
+  return String(max+1);
+}
+function nextPedidoNumero(pedidosMap){
+  let max = 0;
+  pedidosMap.forEach((v,k)=>{ const n = parseInt(k,10); if(!isNaN(n) && n>max) max=n; });
+  return max+1;
+}
+function estoqueControlado(p){ return p && p.estoque!==null && p.estoque!==undefined && p.estoque!==''; }
+function estoqueBaixo(p){ return estoqueControlado(p) && Number(p.estoque) <= Number(p.estoque_min ?? 5); }
+// Vencimento estimado de uma parcela (data da compra + N meses, N = nº da parcela)
+// — o sistema não guarda vencimento real, só a data em que foi paga; é usado só
+// para estimar atraso e agrupar pedidos em pastas por mês/dia.
+function parcelaVencimentoEstimado(pedido, n){
+  const base = pedido && pedido.data_compra ? new Date(pedido.data_compra+'T00:00:00') : null;
+  if(!base || isNaN(base.getTime())) return null;
+  const d = new Date(base);
+  d.setMonth(d.getMonth() + n);
+  return d;
+}
+function proximoPagamentoPedido(pedido){
+  if(pedido && pedido.proximo_pagamento_override){
+    const d = new Date(pedido.proximo_pagamento_override+'T00:00:00');
+    if(!isNaN(d.getTime())) return d;
+  }
+  let proximo = null;
+  (pedido.itens||[]).forEach(it=>{
+    (it.parcelas||[]).forEach(parc=>{
+      if(parc.data_pgto) return;
+      const venc = parcelaVencimentoEstimado(pedido, parc.n);
+      if(venc && (!proximo || venc < proximo)) proximo = venc;
+    });
+  });
+  return proximo;
+}
+function pagamentosDaParcela(p){
+  if(Array.isArray(p.pagamentos) && p.pagamentos.length) return p.pagamentos;
+  if((Number(p.recebimento)||0) > 0) return [{ data: p.data_pgto || null, valor: Number(p.recebimento)||0 }];
+  return [];
+}
+function remanescenteParcela(valorParcela, p){
+  return Math.max(0, (Number(valorParcela)||0) - (Number(p.recebimento)||0) - (Number(p.desconto)||0));
+}
+function pedidoTotais(pedido){
+  const totalGeral = (pedido.itens||[]).reduce((s,it)=> s + (Number(it.valor_venda)||0)*(Number(it.uni)||1), 0);
+  const totalRecebido = (pedido.itens||[]).reduce((s,it)=> s + (it.parcelas||[]).reduce((s2,p)=>s2+(Number(p.recebimento)||0),0), 0);
+  const totalDesconto = (pedido.itens||[]).reduce((s,it)=> s + (it.parcelas||[]).reduce((s2,p)=>s2+(Number(p.desconto)||0),0), 0);
+  const quitado = (totalRecebido+totalDesconto) >= totalGeral - 0.005;
+  return { totalGeral, totalRecebido, totalDesconto, quitado };
+}
+// Lista achatada de todas as parcelas com saldo pendente, em todos os pedidos —
+// alimenta o KPI "a receber" do painel e a tabela de contas a receber do Financeiro.
+function listaContasAReceber(pedidos, clientesMap){
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  const linhas = [];
+  pedidos.forEach(p=>{
+    (p.itens||[]).forEach(it=>{
+      (it.parcelas||[]).forEach(parc=>{
+        const parcelaValor = Number(it.valor_parcela) || ((Number(it.valor_venda)||0) / (it.parcelas_qtd||1));
+        const valor = remanescenteParcela(parcelaValor, parc);
+        if(valor <= 0.005) return;
+        const venc = parcelaVencimentoEstimado(p, parc.n);
+        const vencida = venc ? venc < hoje : false;
+        linhas.push({
+          numero: p.numero,
+          cliente: (clientesMap.get(p.codigo_cliente)||{}).nome || p.cliente_nome || '',
+          n: parc.n, totalParcelas: it.parcelas_qtd,
+          valor, vencimento: venc, vencida,
+          diasAtraso: venc && vencida ? Math.max(0, Math.round((hoje-venc)/86400000)) : 0,
+        });
+      });
+    });
+  });
+  return linhas;
+}
+
 /* ---------------- autenticação ---------------- */
 // Garante que só usuários autenticados vejam as telas do sistema. Chame no topo
 // de cada página (exceto login.html). Redireciona para login.html se não houver
@@ -131,5 +271,10 @@ async function logout(){
 window.RO = {
   sb, fmtBRL, fmtDate, todayISO, esc, onlyDigits, normName, fmtNumBR, parseNumBR, maskMoneyInput,
   toast, sortRows, thSort, wireSortHeaders, rerenderKeepingFocus, requireAuth, logout,
+  loadAllRows, loadClientes, loadClientesMap, loadProdutos, loadProdutosMap,
+  loadPedidos, loadPedidosMap, loadPedidoByNumero,
+  nextCodigo, nextPedidoNumero, estoqueControlado, estoqueBaixo,
+  parcelaVencimentoEstimado, proximoPagamentoPedido, pagamentosDaParcela, remanescenteParcela,
+  pedidoTotais, listaContasAReceber,
 };
 })();

@@ -167,7 +167,7 @@ nav.mainnav{ padding:14px 10px; display:flex; flex-direction:column; gap:2px; fl
   display:inline-flex; align-items:center; gap:7px;
   border:1px solid var(--border); background:var(--surface);
   color:var(--ink); padding:8px 14px; border-radius:8px;
-  font-size:13px; font-weight:600; cursor:pointer;
+  font-size:13px; font-weight:600; cursor:pointer; text-decoration:none;
 }
 .btn:hover{ border-color:var(--accent); }
 .btn.primary{ background:var(--accent); border-color:var(--accent); color:#fff; }
@@ -216,7 +216,7 @@ nav.mainnav{ padding:14px 10px; display:flex; flex-direction:column; gap:2px; fl
 .tile{
   background:var(--accent); color:#fff; border-radius:12px; padding:20px 18px;
   display:flex; flex-direction:column; gap:34px; cursor:pointer; border:none;
-  text-align:left; min-height:118px;
+  text-align:left; min-height:118px; text-decoration:none;
 }
 .tile:hover{ background:var(--accent-dark); }
 .tile .ic{ width:26px; height:26px; opacity:.9; }
