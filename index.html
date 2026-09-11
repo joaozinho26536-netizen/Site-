@@ -845,6 +845,45 @@ function abrirSeletorData(dataAtual, onEscolher){
   renderBody();
 }
 
+// Pop-up para somar um novo pagamento a uma parcela que já tem algo recebido —
+// usado na edição do pedido, quando o cliente paga em mais de uma vez a mesma
+// parcela. O valor digitado é somado ao que já estava registrado (nunca
+// sobrescreve); `onConfirmar(valor, data)` só é chamado depois de validado.
+function abrirNovoPagamentoParcela(jaRecebido, valorParcela, onConfirmar){
+  const remanescente = Math.max(0, valorParcela - jaRecebido);
+  const back = document.createElement('div');
+  back.className = 'modal-backdrop';
+  back.innerHTML = `
+    <div class="modal" style="max-width:420px;">
+      <div class="modal-head"><h3>Novo pagamento nesta parcela</h3><button class="iconbtn" id="npp-close">&times;</button></div>
+      <div class="modal-body">
+        <div class="alertbox info">${ICONS.check}<div>Já recebido: <strong>${fmtBRL(jaRecebido)}</strong> &middot; Saldo: <strong>${fmtBRL(remanescente)}</strong>. O valor abaixo será somado ao que já foi recebido.</div></div>
+        <div id="npp-error"></div>
+        <div class="field-grid" style="grid-template-columns:1fr;">
+          <div class="field"><label>Data deste pagamento</label><input id="npp-data" type="date" value="${todayISO()}"></div>
+          <div class="field"><label>Valor deste pagamento</label><input id="npp-valor" inputmode="decimal" value="${fmtNumBR(remanescente)}"></div>
+        </div>
+      </div>
+      <div class="modal-foot"><button class="btn" id="npp-cancel">Cancelar</button><button class="btn primary" id="npp-save">${ICONS.check} Somar ao recebido</button></div>
+    </div>`;
+  document.body.appendChild(back);
+  maskMoneyInput(back.querySelector('#npp-valor'));
+  const close = ()=> back.remove();
+  back.querySelector('#npp-close').onclick = close;
+  back.querySelector('#npp-cancel').onclick = close;
+  back.onclick = (e)=>{ if(e.target===back) close(); };
+  back.querySelector('#npp-save').onclick = ()=>{
+    const errBox = back.querySelector('#npp-error');
+    errBox.innerHTML = '';
+    const data = back.querySelector('#npp-data').value;
+    const valor = parseNumBR(back.querySelector('#npp-valor').value);
+    if(!data){ errBox.innerHTML = '<div class="alertbox danger">'+ICONS.warn+'<div>Informe a data do pagamento.</div></div>'; return; }
+    if(valor<=0){ errBox.innerHTML = '<div class="alertbox danger">'+ICONS.warn+'<div>Informe um valor maior que zero.</div></div>'; return; }
+    close();
+    onConfirmar(valor, data);
+  };
+}
+
 function listaContasAReceber(){
   const hoje = new Date(); hoje.setHours(0,0,0,0);
   const linhas = [];
@@ -1994,7 +2033,10 @@ function renderFichaHTML(pedido){
               let saldo = total;
               return (it.parcelas||[]).map((p,pIdx)=>{
                 saldo -= (p.recebimento||0);
-                const pago = !!p.data_pgto;
+                // Remanescente desta parcela específica (diferente do "saldo" acima, que é o
+                // saldo corrido do item inteiro) — decide se ainda cabe registrar pagamento
+                // nela, mesmo que já tenha recebido um valor parcial antes.
+                const remanescente = Math.max(0, (it.valor_parcela||0) - (p.recebimento||0));
                 return `<tr>
                   <td>${pIdx===0?esc(it.descricao):''}</td>
                   <td>${pIdx===0?esc(it.uni):''}</td>
@@ -2003,7 +2045,7 @@ function renderFichaHTML(pedido){
                   <td>${p.data_pgto? fmtDate(p.data_pgto) : '<span class="badge pending">pendente</span>'}</td>
                   <td class="num">${fmtBRL(p.recebimento)}</td>
                   <td class="num">${fmtBRL(Math.max(saldo,0))}</td>
-                  <td>${!pago?`<button class="btn ghost fp-pagar" data-item="${itIdx}" data-parc="${pIdx}" style="font-size:12px;">Registrar pgto.</button>`:''}</td>
+                  <td>${remanescente>0.005 ? `<button class="btn ghost fp-pagar" data-item="${itIdx}" data-parc="${pIdx}" style="font-size:12px;">${(p.recebimento||0)>0?('+ Novo pagamento'):'Registrar pgto.'}</button>` : ''}</td>
                 </tr>`;
               }).join('');
             }).join('')}
@@ -2198,7 +2240,12 @@ function openEditarFicha(pedido, container){
                 <tr>
                   <td>${pIdx+1}/${it.parcelas_qtd}</td>
                   <td><input type="date" class="ef-datapgto" data-it="${itIdx}" data-p="${pIdx}" value="${p.data_pgto||''}"></td>
-                  <td class="num"><input class="ef-recebimento" data-it="${itIdx}" data-p="${pIdx}" inputmode="decimal" value="${fmtNumBR(p.recebimento)}" style="text-align:right; width:110px;"></td>
+                  <td class="num">
+                    <div style="display:flex; align-items:center; gap:4px; justify-content:flex-end;">
+                      <input class="ef-recebimento" data-it="${itIdx}" data-p="${pIdx}" inputmode="decimal" value="${fmtNumBR(p.recebimento)}" style="text-align:right; width:100px;">
+                      <button type="button" class="iconbtn ef-add-pagamento" data-it="${itIdx}" data-p="${pIdx}" title="Somar um novo pagamento a esta parcela (o cliente pagou em mais de uma vez)">${ICONS.plus}</button>
+                    </div>
+                  </td>
                   <td class="num ef-saldo" data-it="${itIdx}" data-p="${pIdx}">R$ 0,00</td>
                 </tr>`).join('')}
             </tbody>
@@ -2235,6 +2282,25 @@ function openEditarFicha(pedido, container){
       inp.onchange = (e)=>{
         draft.itens[+e.target.dataset.it].parcelas[+e.target.dataset.p].data_pgto = e.target.value || null;
         atualizarProximoBtn();
+      };
+    });
+    card.querySelectorAll('.ef-add-pagamento').forEach(btn=>{
+      btn.onclick = ()=>{
+        const it2 = +btn.dataset.it, p2 = +btn.dataset.p;
+        const parcela = draft.itens[it2].parcelas[p2];
+        const jaRecebido = Number(parcela.recebimento)||0;
+        const valorParcela = Number(draft.itens[it2].valor_parcela)||0;
+        abrirNovoPagamentoParcela(jaRecebido, valorParcela, (valor, data)=>{
+          parcela.recebimento = jaRecebido + valor;
+          parcela.data_pgto = data;
+          const recInp = card.querySelector(`.ef-recebimento[data-it="${it2}"][data-p="${p2}"]`);
+          if(recInp) recInp.value = fmtNumBR(parcela.recebimento);
+          const dateInp = card.querySelector(`.ef-datapgto[data-it="${it2}"][data-p="${p2}"]`);
+          if(dateInp) dateInp.value = parcela.data_pgto || '';
+          recomputeSaldos(it2);
+          atualizarProximoBtn();
+          toast('Pagamento somado à parcela.', 'ok');
+        });
       };
     });
     card.querySelectorAll('.ef-recebimento').forEach(inp=>{
@@ -2359,16 +2425,23 @@ function maskMoneyInput(el){
 }
 
 function openRegistrarPagamento(pedido, itIdx, pIdx, container){
+  // Um pagamento novo SOMA ao que essa parcela já recebeu, em vez de substituir —
+  // é o que permite registrar vários pagamentos parciais na mesma parcela até ela
+  // ficar quitada, sem precisar somar os valores de cabeça.
+  const jaRecebido = Number(pedido.itens[itIdx].parcelas[pIdx].recebimento)||0;
+  const valorParcela = Number(pedido.itens[itIdx].valor_parcela)||0;
+  const remanescente = Math.max(0, valorParcela - jaRecebido);
   const back = document.createElement('div');
   back.className = 'modal-backdrop';
   back.innerHTML = `
     <div class="modal" style="max-width:420px;">
-      <div class="modal-head"><h3>Registrar pagamento</h3><button class="iconbtn" id="rp-close">&times;</button></div>
+      <div class="modal-head"><h3>${jaRecebido>0?'Novo pagamento nesta parcela':'Registrar pagamento'}</h3><button class="iconbtn" id="rp-close">&times;</button></div>
       <div class="modal-body">
+        ${jaRecebido>0 ? `<div class="alertbox info">${ICONS.check}<div>Já recebido nesta parcela: <strong>${fmtBRL(jaRecebido)}</strong> &middot; Saldo: <strong>${fmtBRL(remanescente)}</strong>. O valor abaixo será somado ao que já foi recebido.</div></div>` : ''}
         <div id="rp-error"></div>
         <div class="field-grid" style="grid-template-columns:1fr;">
           <div class="field"><label>Data do pagamento</label><input id="rp-data" type="date" value="${todayISO()}"></div>
-          <div class="field"><label>Valor recebido</label><input id="rp-valor" inputmode="decimal" value="${fmtNumBR(pedido.itens[itIdx].valor_parcela)}"></div>
+          <div class="field"><label>Valor deste pagamento</label><input id="rp-valor" inputmode="decimal" value="${fmtNumBR(remanescente)}"></div>
         </div>
       </div>
       <div class="modal-foot"><button class="btn" id="rp-cancel">Cancelar</button><button class="btn primary" id="rp-save">${ICONS.check} Salvar</button></div>
@@ -2391,9 +2464,10 @@ function openRegistrarPagamento(pedido, itIdx, pIdx, container){
     // can be frozen/immutable, and writing into their nested fields throws. Build a
     // fresh, plain clone, mutate that, and only adopt it after a successful save.
     const updated = JSON.parse(JSON.stringify(pedido));
+    const novoRecebimento = jaRecebido + valor;
     // Um valor recebido zerado nunca fica marcado como pago (mantém "pendente").
-    updated.itens[itIdx].parcelas[pIdx].data_pgto = valor > 0 ? data : null;
-    updated.itens[itIdx].parcelas[pIdx].recebimento = valor;
+    updated.itens[itIdx].parcelas[pIdx].data_pgto = novoRecebimento > 0 ? data : null;
+    updated.itens[itIdx].parcelas[pIdx].recebimento = novoRecebimento;
     saveBtn.disabled = true;
     saveBtn.innerHTML = 'Salvando…';
     try{
