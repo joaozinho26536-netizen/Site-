@@ -227,6 +227,7 @@
       bar = document.createElement('div');
       bar.id = 'vendas-subtabs';
       bar.className = 'subtabs';
+      bar.setAttribute('data-pjax-extra', '1');
       top.parentNode.insertBefore(bar, top);
     }
     bar.innerHTML = `<button data-tab="lista" class="${pedidoUI.tab==='lista'?'active':''}">Pedidos</button><button data-tab="novo" class="${pedidoUI.tab==='novo'?'active':''}">Criação de pedidos</button>`;

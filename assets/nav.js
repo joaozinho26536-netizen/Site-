@@ -62,44 +62,53 @@ function toggleSidebar(){
 // <body> e devolve os elementos que a própria página vai preencher.
 // `perfil` (opcional): { role: 'admin_chefe'|'editor' } — controla quais abas
 // aparecem no menu (ver adminOnly em NAV).
+// Idempotente: se a casca já existe (chegamos aqui via navegação sem recarregar
+// a página, ver navegarPara mais abaixo), só atualiza o item ativo do menu e o
+// rótulo do papel — não recria sidebar/topbar do zero.
 function mount(active, perfil){
   const isAdmin = !!(perfil && perfil.role === 'admin_chefe');
   const papelLabel = perfil ? (isAdmin ? 'Administrador chefe' : 'Editor') : 'v2.0 &middot; Supabase';
-  document.body.insertAdjacentHTML('afterbegin', `
-    <div id="shell">
-      <div class="sidebar-overlay" id="sidebar-overlay"></div>
-      <aside id="sidebar">
-        <div class="brand">
-          <div class="brand-name">Ramos de Oliveira</div>
-          <div class="brand-sub">Enxovais &middot; Sistema</div>
-        </div>
-        <nav class="mainnav" id="mainnav">${renderNavHTML(active, isAdmin)}</nav>
-        <div class="sidebar-foot"><span>${papelLabel}</span><button id="nav-logout" type="button">Sair</button></div>
-      </aside>
-      <div id="main">
-        <header class="topbar">
-          <div class="topbar-left">
-            <button type="button" class="iconbtn navburger" id="navburger" aria-label="Abrir menu" aria-expanded="false"><svg viewBox="0 0 20 20" fill="currentColor"><rect x="1.6" y="3.8" width="16.8" height="2.3" rx="1.15"/><rect x="1.6" y="8.85" width="16.8" height="2.3" rx="1.15"/><rect x="1.6" y="13.9" width="16.8" height="2.3" rx="1.15"/></svg></button>
-            <div>
-              <h1 id="pagetitle"></h1>
-              <div class="crumb" id="pagecrumb"></div>
-            </div>
+  if(!document.getElementById('shell')){
+    document.body.insertAdjacentHTML('afterbegin', `
+      <div id="shell">
+        <div class="sidebar-overlay" id="sidebar-overlay"></div>
+        <aside id="sidebar">
+          <div class="brand">
+            <div class="brand-name">Ramos de Oliveira</div>
+            <div class="brand-sub">Enxovais &middot; Sistema</div>
           </div>
-          <div id="topbar-actions"></div>
-        </header>
-        <main class="content" id="content"></main>
+          <nav class="mainnav" id="mainnav"></nav>
+          <div class="sidebar-foot"><span></span><button id="nav-logout" type="button">Sair</button></div>
+        </aside>
+        <div id="main">
+          <header class="topbar">
+            <div class="topbar-left">
+              <button type="button" class="iconbtn navburger" id="navburger" aria-label="Abrir menu" aria-expanded="false"><svg viewBox="0 0 20 20" fill="currentColor"><rect x="1.6" y="3.8" width="16.8" height="2.3" rx="1.15"/><rect x="1.6" y="8.85" width="16.8" height="2.3" rx="1.15"/><rect x="1.6" y="13.9" width="16.8" height="2.3" rx="1.15"/></svg></button>
+              <div>
+                <h1 id="pagetitle"></h1>
+                <div class="crumb" id="pagecrumb"></div>
+              </div>
+            </div>
+            <div id="topbar-actions"></div>
+          </header>
+          <main class="content" id="content"></main>
+        </div>
       </div>
-    </div>
-    <div class="toast-wrap" id="toasts"></div>
-  `);
-  const burger = document.getElementById('navburger');
-  if(burger) burger.onclick = toggleSidebar;
-  const overlay = document.getElementById('sidebar-overlay');
-  if(overlay) overlay.onclick = closeSidebar;
-  const mainnav = document.getElementById('mainnav');
-  if(mainnav) mainnav.addEventListener('click', (e)=>{ if(e.target.closest('a')) closeSidebar(); });
-  const logoutBtn = document.getElementById('nav-logout');
-  if(logoutBtn) logoutBtn.onclick = ()=> window.RO.logout();
+      <div class="toast-wrap" id="toasts"></div>
+    `);
+    const burger = document.getElementById('navburger');
+    if(burger) burger.onclick = toggleSidebar;
+    const overlay = document.getElementById('sidebar-overlay');
+    if(overlay) overlay.onclick = closeSidebar;
+    const mainnav = document.getElementById('mainnav');
+    if(mainnav) mainnav.addEventListener('click', (e)=>{ if(e.target.closest('a')) closeSidebar(); });
+    const logoutBtn = document.getElementById('nav-logout');
+    if(logoutBtn) logoutBtn.onclick = ()=> window.RO.logout();
+    initRouter();
+  }
+  document.getElementById('mainnav').innerHTML = renderNavHTML(active, isAdmin);
+  const footSpan = document.querySelector('#shell .sidebar-foot span');
+  if(footSpan) footSpan.innerHTML = papelLabel;
 }
 
 function setTitle(title, crumb, actionsHTML){
@@ -109,6 +118,91 @@ function setTitle(title, crumb, actionsHTML){
 }
 function backHomeBtn(){
   return '<a class="btn backhome" href="index.html">'+ICONS.back+' Início</a>';
+}
+
+/* ============================================================
+   Navegação sem recarregar a página inteira (SPA leve)
+   ------------------------------------------------------------
+   Ao clicar num link para outra tela do sistema (menu lateral, botão
+   "Início", atalhos do painel), em vez do navegador descartar tudo e
+   recarregar HTML/CSS/fontes/JS do zero, buscamos só o HTML da página de
+   destino, executamos o script dela e trocamos apenas o conteúdo — o menu
+   lateral e o topo continuam montados. Um clique direto na URL ou um F5
+   continua fazendo o carregamento normal (nada muda nesse caso).
+   ============================================================ */
+const PAGE_FILES = new Set(NAV.map(n=>n.href));
+const injectedPageStyles = new Set();
+
+function resolvePageFile(href){
+  try{
+    const url = new URL(href, location.href);
+    if(url.origin !== location.origin) return null;
+    const file = url.pathname.split('/').pop() || 'index.html';
+    return PAGE_FILES.has(file) ? file : null;
+  }catch(e){ return null; }
+}
+
+async function navegarPara(href, push){
+  const file = resolvePageFile(href);
+  if(!file){ window.location.href = href; return; }
+  closeSidebar();
+  // remove elementos que uma página anterior tenha inserido fora do próprio
+  // #content (ex.: a barra de sub-abas de vendas.html)
+  document.querySelectorAll('[data-pjax-extra]').forEach(n=> n.remove());
+  const contentEl = document.getElementById('content');
+  if(contentEl) contentEl.innerHTML = '<div class="empty"><div class="spinner" style="margin:0 auto;"></div></div>';
+  const topActions = document.getElementById('topbar-actions');
+  if(topActions) topActions.innerHTML = '';
+  let html;
+  try{
+    const resp = await fetch(file, { cache: 'no-store' });
+    if(!resp.ok) throw new Error('HTTP '+resp.status);
+    html = await resp.text();
+  }catch(e){
+    // falhou a busca (ex.: sem rede) — cai para a navegação normal do navegador
+    window.location.href = href;
+    return;
+  }
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  // injeta um <style> próprio da página (ex.: o CSS das sub-abas de vendas.html)
+  // uma única vez — as páginas compartilham assets/style.css, mas algumas têm
+  // um bloquinho de CSS extra no próprio <head>.
+  if(!injectedPageStyles.has(file)){
+    doc.querySelectorAll('head style').forEach(styleEl=>{
+      const tag = document.createElement('style');
+      tag.setAttribute('data-pjax-style', file);
+      tag.textContent = styleEl.textContent;
+      document.head.appendChild(tag);
+    });
+    injectedPageStyles.add(file);
+  }
+  if(doc.title) document.title = doc.title;
+  if(push) history.pushState({ pjax:true, file }, '', file);
+  // executa só o(s) <script> inline da página (RO/RO_NAV/supabase-js já estão
+  // carregados globalmente — não precisa recarregar os <script src="...">)
+  const scriptCode = Array.from(doc.querySelectorAll('script:not([src])')).map(s=>s.textContent).join('\n;\n');
+  try{
+    (0, eval)(scriptCode);
+  }catch(e){
+    console.error('Erro ao executar script da página '+file+':', e);
+    window.location.href = href;
+  }
+}
+
+let routerPronto = false;
+function initRouter(){
+  if(routerPronto) return;
+  routerPronto = true;
+  document.addEventListener('click', (e)=>{
+    if(e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    const a = e.target.closest('a[href]');
+    if(!a || (a.target && a.target !== '_self') || a.hasAttribute('download')) return;
+    const file = resolvePageFile(a.getAttribute('href'));
+    if(!file) return;
+    e.preventDefault();
+    if(file !== location.pathname.split('/').pop()) navegarPara(a.getAttribute('href'), true);
+  });
+  window.addEventListener('popstate', ()=> navegarPara(location.href, false));
 }
 
 window.RO_NAV = { ICONS, NAV, mount, setTitle, backHomeBtn, openSidebar, closeSidebar, toggleSidebar };
