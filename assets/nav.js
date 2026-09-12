@@ -20,6 +20,7 @@ const ICONS = {
   down:'<svg viewBox="0 0 20 20" fill="currentColor"><path d="M4 7.4 10 13.4 16 7.4 14.6 6 10 10.6 5.4 6 4 7.4Z"/></svg>',
   upload:'<svg viewBox="0 0 20 20" fill="currentColor"><path d="M10 2.6 4.8 8.4h3.1V14h4.2V8.4h3.1L10 2.6Z"/><path d="M2.8 16h14.4v1.6H2.8V16Z"/></svg>',
   external:'<svg viewBox="0 0 20 20" fill="currentColor"><path d="M8 3H3v14h14v-5h-2v3H5V5h3V3Z"/><path d="M11 3h6v6h-2V6.4l-7.3 7.3-1.4-1.4L13.6 5H11V3Z"/></svg>',
+  shield:'<svg viewBox="0 0 20 20" fill="currentColor"><path d="M10 1.4 17.6 4v5.6c0 4.9-3.2 8.7-7.6 9-4.4-.3-7.6-4.1-7.6-9V4L10 1.4Z" opacity=".18"/><path fill-rule="evenodd" clip-rule="evenodd" d="M10 1.4 17.6 4v5.6c0 4.9-3.2 8.7-7.6 9-4.4-.3-7.6-4.1-7.6-9V4L10 1.4Zm0 2.1L4.4 5.4v4.2c0 3.9 2.4 6.8 5.6 7.1 3.2-.3 5.6-3.2 5.6-7.1V5.4L10 3.5Z"/><path d="M9 13.4 5.9 10.3l1.4-1.4L9 10.6l3.7-3.7 1.4 1.4L9 13.4Z"/></svg>',
 };
 
 const NAV = [
@@ -29,6 +30,7 @@ const NAV = [
   {id:'vendas', label:'Vendas', icon:'file', href:'vendas.html'},
   {id:'financeiro', label:'Financeiro', icon:'coins', href:'financeiro.html'},
   {id:'backup', label:'Backup', icon:'upload', href:'backup.html'},
+  {id:'seguranca', label:'Segurança', icon:'shield', href:'seguranca.html'},
 ];
 
 function renderNavHTML(active){

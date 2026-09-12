@@ -1,0 +1,153 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ramos de Oliveira &middot; Segurança</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800&family=Roboto+Condensed:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head><body>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="assets/supabase-client.js"></script>
+<script src="assets/nav.js"></script>
+<script>
+(async function(){
+  const session = await RO.requireAuth();
+  if(!session) return;
+  RO_NAV.mount('seguranca');
+  RO_NAV.setTitle('Segurança', 'Autenticação de dois fatores e sessão', RO_NAV.backHomeBtn());
+
+  const ICONS = RO_NAV.ICONS;
+  const esc = RO.esc, toast = RO.toast;
+  const el = document.getElementById('content');
+
+  async function render(){
+    el.innerHTML = '<div class="empty"><div class="spinner" style="margin:0 auto 10px;"></div>Carregando…</div>';
+    const { data, error } = await RO.sb.auth.mfa.listFactors();
+    if(error){ el.innerHTML = '<div class="empty">'+ICONS.warn+'<div>Erro ao carregar: '+esc(error.message)+'</div></div>'; return; }
+    const factors = (data.totp||[]).filter(f=>f.status==='verified');
+
+    el.innerHTML = `
+      <div class="card" style="margin-bottom:20px; max-width:640px;">
+        <div class="card-head"><h2>Autenticação de dois fatores (2FA)</h2></div>
+        <div class="card-body">
+          <div class="alertbox ${factors.length?'info':'warning'}">${factors.length?ICONS.check:ICONS.warn}<div>${factors.length
+            ? 'Ativada. Um código do seu aplicativo autenticador é exigido a cada novo login.'
+            : 'Ainda não ativada. Recomendamos fortemente ativar — protege a conta mesmo se a senha vazar.'}</div></div>
+          <div id="fatores-lista"></div>
+          <button class="btn primary" id="btn-ativar" ${factors.length?'style="display:none;"':''}>${ICONS.shield} Ativar 2FA</button>
+        </div>
+      </div>
+      <div class="card" style="max-width:640px;">
+        <div class="card-head"><h2>Sessão</h2></div>
+        <div class="card-body">
+          <div style="font-size:13px; color:var(--muted); margin-bottom:12px;">Encerrar a sessão neste dispositivo.</div>
+          <button class="btn" id="btn-sair">${ICONS.back} Sair</button>
+        </div>
+      </div>
+    `;
+    document.getElementById('btn-sair').onclick = ()=> RO.logout();
+
+    const listaEl = document.getElementById('fatores-lista');
+    if(factors.length){
+      listaEl.innerHTML = `
+        <div class="table-wrap" style="margin:14px 0;">
+          <table class="data">
+            <thead><tr><th>Nome</th><th>Ativado em</th><th></th></tr></thead>
+            <tbody>
+              ${factors.map(f=>`<tr>
+                <td>${esc(f.friendly_name || 'Aplicativo autenticador')}</td>
+                <td>${new Date(f.created_at).toLocaleDateString('pt-BR')}</td>
+                <td><button class="iconbtn" data-unenroll="${esc(f.id)}" title="Desativar">${ICONS.trash}</button></td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>`;
+      listaEl.querySelectorAll('[data-unenroll]').forEach(btn=>{
+        btn.onclick = async ()=>{
+          if(!confirm('Desativar a autenticação de dois fatores? A conta ficará protegida só pela senha.')) return;
+          const { error } = await RO.sb.auth.mfa.unenroll({ factorId: btn.dataset.unenroll });
+          if(error){ toast('Erro ao desativar: '+error.message, 'err'); return; }
+          toast('2FA desativado.', 'ok');
+          render();
+        };
+      });
+    }else{
+      listaEl.innerHTML = '';
+    }
+
+    document.getElementById('btn-ativar').onclick = abrirEnrollModal;
+  }
+
+  function abrirEnrollModal(){
+    const back = document.createElement('div');
+    back.className = 'modal-backdrop';
+    back.innerHTML = `
+      <div class="modal" style="max-width:420px;">
+        <div class="modal-head"><h3>Ativar autenticação de dois fatores</h3><button class="iconbtn" id="en-close">&times;</button></div>
+        <div class="modal-body">
+          <div id="en-error"></div>
+          <div id="en-step1">
+            <p style="font-size:13px; color:var(--muted);">1. Escaneie o QR code abaixo com o Google Authenticator, Authy ou outro app autenticador.</p>
+            <div style="text-align:center; margin:16px 0;" id="en-qr"><div class="spinner" style="margin:0 auto;"></div></div>
+            <p style="font-size:11.5px; color:var(--muted);">Não consegue escanear? Digite manualmente: <code id="en-secret" style="word-break:break-all;"></code></p>
+          </div>
+          <div class="field" style="margin-top:14px;">
+            <label>2. Código do app</label>
+            <input id="en-code" inputmode="numeric" maxlength="6" pattern="[0-9]*" placeholder="000000">
+          </div>
+        </div>
+        <div class="modal-foot"><button class="btn" id="en-cancel">Cancelar</button><button class="btn primary" id="en-verify">${ICONS.check} Ativar</button></div>
+      </div>`;
+    document.body.appendChild(back);
+    let factorId = null;
+    let cancelled = false;
+
+    const close = async ()=>{
+      back.remove();
+      // Se o usuário desistiu no meio do caminho, remove o fator "unverified"
+      // órfão para não deixar lixo acumulando (ele não conta pra política de
+      // segurança do banco enquanto não for verificado, mas é boa prática limpar).
+      if(factorId && cancelled){
+        try{ await RO.sb.auth.mfa.unenroll({ factorId }); }catch(e){}
+      }
+    };
+    back.querySelector('#en-close').onclick = ()=>{ cancelled = true; close(); };
+    back.querySelector('#en-cancel').onclick = ()=>{ cancelled = true; close(); };
+
+    (async ()=>{
+      const { data, error } = await RO.sb.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'Aplicativo autenticador' });
+      if(error){
+        back.querySelector('#en-error').innerHTML = `<div class="alertbox danger">${ICONS.warn}<div>${esc(error.message)}</div></div>`;
+        return;
+      }
+      factorId = data.id;
+      back.querySelector('#en-qr').innerHTML = `<img src="${data.totp.qr_code}" alt="QR code" style="max-width:200px;">`;
+      back.querySelector('#en-secret').textContent = data.totp.secret;
+    })();
+
+    back.querySelector('#en-verify').onclick = async ()=>{
+      const errBox = back.querySelector('#en-error');
+      errBox.innerHTML = '';
+      const code = back.querySelector('#en-code').value.trim();
+      if(!factorId){ errBox.innerHTML = `<div class="alertbox danger">${ICONS.warn}<div>Aguarde o QR code carregar.</div></div>`; return; }
+      if(!/^\d{6}$/.test(code)){ errBox.innerHTML = `<div class="alertbox danger">${ICONS.warn}<div>Digite os 6 dígitos do código.</div></div>`; return; }
+      const btn = back.querySelector('#en-verify');
+      btn.disabled = true; btn.textContent = 'Verificando…';
+      try{
+        const { data: challenge, error: eChallenge } = await RO.sb.auth.mfa.challenge({ factorId });
+        if(eChallenge) throw eChallenge;
+        const { error: eVerify } = await RO.sb.auth.mfa.verify({ factorId, challengeId: challenge.id, code });
+        if(eVerify) throw eVerify;
+        cancelled = false;
+        back.remove();
+        toast('2FA ativado com sucesso!', 'ok');
+        render();
+      }catch(err){
+        errBox.innerHTML = `<div class="alertbox danger">${ICONS.warn}<div>${err.message === 'Invalid TOTP code entered' ? 'Código incorreto. Tente novamente.' : esc(err.message)}</div></div>`;
+        btn.disabled = false; btn.textContent = 'Ativar';
+      }
+    };
+  }
+
+  render();
+})();
+</script>
+</body></html>

@@ -73,6 +73,12 @@
     const { error } = await RO.sb.auth.signInWithPassword({ email, password: senha });
     btn.disabled = false; btn.textContent = 'Entrar';
     if(error){ setError(error.message === 'Invalid login credentials' ? 'E-mail ou senha incorretos.' : error.message); return; }
+    // Se a conta tem 2FA ativado, exige o código antes de liberar o painel.
+    const { data: aal } = await RO.sb.auth.mfa.getAuthenticatorAssuranceLevel();
+    if(aal && aal.nextLevel === 'aal2' && aal.nextLevel !== aal.currentLevel){
+      window.location.href = 'mfa.html';
+      return;
+    }
     window.location.href = 'index.html';
   });
 

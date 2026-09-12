@@ -320,13 +320,23 @@ async function salvarPedidoCompleto(numeroAntigo, draft){
 }
 
 /* ---------------- autenticação ---------------- */
-// Garante que só usuários autenticados vejam as telas do sistema. Chame no topo
-// de cada página (exceto login.html). Redireciona para login.html se não houver
-// sessão válida. Retorna a sessão quando autenticado.
+// Garante que só usuários autenticados — e que já completaram o desafio de dois
+// fatores, se tiverem 2FA ativado — vejam as telas do sistema. Chame no topo de
+// cada página (exceto login.html e mfa.html). Redireciona para login.html sem
+// sessão, ou para mfa.html se a sessão ainda não atingiu o nível aal2 exigido.
+// Isso é só a camada de UX: a garantia de verdade é a policy "restrictive" no
+// banco (require_aal2_if_mfa_enrolled), que nega a leitura/escrita mesmo que
+// alguém pule esta tela.
 async function requireAuth(){
   const { data: { session } } = await sb.auth.getSession();
   if(!session){
     window.location.href = 'login.html';
+    return null;
+  }
+  const { data: aal } = await sb.auth.mfa.getAuthenticatorAssuranceLevel();
+  if(aal && aal.nextLevel === 'aal2' && aal.nextLevel !== aal.currentLevel){
+    const next = encodeURIComponent(location.pathname.split('/').pop() || 'index.html');
+    window.location.href = 'mfa.html?next=' + next;
     return null;
   }
   return session;
