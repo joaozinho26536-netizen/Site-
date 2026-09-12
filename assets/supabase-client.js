@@ -261,34 +261,45 @@ async function excluirItensPedido(numero){
 // no mesmo formato aninhado usado em toda a interface (it.parcelas[].pagamentos[]).
 // Usado tanto ao emitir um pedido novo quanto ao salvar edições (nesse caso,
 // sempre chamado depois de excluirItensPedido para o mesmo número).
+// Grava tudo em no máximo 3 requisições (itens, depois parcelas, depois
+// pagamentos), em vez de uma sequência de idas-e-vindas por item — um pedido
+// com vários produtos/parcelas levava dezenas de requisições sequenciais
+// antes disso, e cada uma paga o tempo de ida-e-volta até o Supabase.
 async function salvarItensPedido(numero, itens){
-  for(const it of itens){
-    const { data: itemRow, error: e1 } = await sb.from('pedido_itens').insert({
-      pedido_numero: numero, codigo_produto: it.codigo_produto || null, descricao: it.descricao || '',
-      uni: it.uni||1, valor_venda: it.valor_venda||0, valor_compra: it.valor_compra||0,
-      parcelas_qtd: it.parcelas_qtd||1, valor_parcela: it.valor_parcela||0,
-    }).select('id').single();
-    if(e1) throw e1;
-    const itemId = itemRow.id;
-    const parcelasInput = (it.parcelas||[]).map(p=>({
-      item_id: itemId, n: p.n, data_pgto: p.data_pgto||null,
-      recebimento: Number(p.recebimento)||0, desconto: Number(p.desconto)||0, recibo: p.recibo||null,
-    }));
-    if(!parcelasInput.length) continue;
-    const { data: parcRows, error: e2 } = await sb.from('parcelas').insert(parcelasInput).select('id,n');
-    if(e2) throw e2;
-    const idByN = new Map(parcRows.map(r=>[r.n, r.id]));
-    const pagamentosInput = [];
+  if(!itens.length) return;
+  const itensInput = itens.map(it=>({
+    pedido_numero: numero, codigo_produto: it.codigo_produto || null, descricao: it.descricao || '',
+    uni: it.uni||1, valor_venda: it.valor_venda||0, valor_compra: it.valor_compra||0,
+    parcelas_qtd: it.parcelas_qtd||1, valor_parcela: it.valor_parcela||0,
+  }));
+  const { data: itemRows, error: e1 } = await sb.from('pedido_itens').insert(itensInput).select('id');
+  if(e1) throw e1;
+
+  const parcelasInput = [], parcelasOriginais = [];
+  itens.forEach((it, idx)=>{
+    const itemId = itemRows[idx].id;
     (it.parcelas||[]).forEach(p=>{
-      const pid = idByN.get(p.n);
-      pagamentosDaParcela(p).forEach(pg=>{
-        if((Number(pg.valor)||0) > 0) pagamentosInput.push({ parcela_id: pid, data: pg.data || p.data_pgto || todayISO(), valor: pg.valor });
+      parcelasInput.push({
+        item_id: itemId, n: p.n, data_pgto: p.data_pgto||null,
+        recebimento: Number(p.recebimento)||0, desconto: Number(p.desconto)||0, recibo: p.recibo||null,
       });
+      parcelasOriginais.push(p);
     });
-    if(pagamentosInput.length){
-      const { error: e3 } = await sb.from('pagamentos').insert(pagamentosInput);
-      if(e3) throw e3;
-    }
+  });
+  if(!parcelasInput.length) return;
+  const { data: parcRows, error: e2 } = await sb.from('parcelas').insert(parcelasInput).select('id');
+  if(e2) throw e2;
+
+  const pagamentosInput = [];
+  parcelasOriginais.forEach((p, idx)=>{
+    const parcelaId = parcRows[idx].id;
+    pagamentosDaParcela(p).forEach(pg=>{
+      if((Number(pg.valor)||0) > 0) pagamentosInput.push({ parcela_id: parcelaId, data: pg.data || p.data_pgto || todayISO(), valor: pg.valor });
+    });
+  });
+  if(pagamentosInput.length){
+    const { error: e3 } = await sb.from('pagamentos').insert(pagamentosInput);
+    if(e3) throw e3;
   }
 }
 // Regrava um pedido inteiro (cabeçalho + itens/parcelas/pagamentos) — usado para
