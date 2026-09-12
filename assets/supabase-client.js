@@ -346,9 +346,37 @@ async function logout(){
   window.location.href = 'login.html';
 }
 
+/* ---------------- hierarquia de usuários (admin_chefe / editor) ---------------- */
+// Busca o papel do usuário logado uma vez por sessão de página e guarda em
+// cache — todas as páginas chamam isso logo após requireAuth() para decidir
+// o que mostrar no menu. A garantia de verdade continua sendo a RLS no
+// banco; isto é só a camada de UX (esconder abas, redirecionar).
+let _perfilCache = null;
+async function getMeuPerfil(){
+  if(_perfilCache) return _perfilCache;
+  const { data: { user } } = await sb.auth.getUser();
+  if(!user) return null;
+  const { data, error } = await sb.from('perfis').select('user_id,email,nome,role').eq('user_id', user.id).maybeSingle();
+  if(error){ console.error('Erro ao carregar perfil:', error); return null; }
+  _perfilCache = data;
+  return data;
+}
+// Usado no topo de financeiro.html, backup.html e seguranca.html — só o
+// admin_chefe pode ver essas telas.
+async function requireAdmin(){
+  const perfil = await getMeuPerfil();
+  if(!perfil || perfil.role !== 'admin_chefe'){
+    toast('Acesso restrito ao Administrador chefe.', 'err');
+    window.location.href = 'index.html';
+    return null;
+  }
+  return perfil;
+}
+
 window.RO = {
   sb, fmtBRL, fmtDate, todayISO, esc, onlyDigits, normName, fmtNumBR, parseNumBR, maskMoneyInput,
   toast, sortRows, thSort, wireSortHeaders, rerenderKeepingFocus, requireAuth, logout,
+  getMeuPerfil, requireAdmin,
   loadAllRows, loadClientes, loadClientesMap, loadProdutos, loadProdutosMap,
   loadPedidos, loadPedidosMap, loadPedidoByNumero,
   nextCodigo, nextPedidoNumero, estoqueControlado, estoqueBaixo,

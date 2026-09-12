@@ -11,8 +11,10 @@
 (async function(){
   const session = await RO.requireAuth();
   if(!session) return;
-  RO_NAV.mount('seguranca');
-  RO_NAV.setTitle('Segurança', 'Autenticação de dois fatores e sessão', RO_NAV.backHomeBtn());
+  const perfil = await RO.requireAdmin();
+  if(!perfil) return;
+  RO_NAV.mount('seguranca', perfil);
+  RO_NAV.setTitle('Segurança', 'Autenticação de dois fatores, sessão e usuários', RO_NAV.backHomeBtn());
 
   const ICONS = RO_NAV.ICONS;
   const esc = RO.esc, toast = RO.toast;
@@ -35,6 +37,13 @@
           <button class="btn primary" id="btn-ativar" ${factors.length?'style="display:none;"':''}>${ICONS.shield} Ativar 2FA</button>
         </div>
       </div>
+      <div class="card" style="margin-bottom:20px; max-width:640px;">
+        <div class="card-head"><h2>Usuários e permissões</h2></div>
+        <div class="card-body">
+          <div style="font-size:13px; color:var(--muted); margin-bottom:12px;">Defina o que cada pessoa pode acessar. Administrador chefe vê tudo (inclusive Financeiro, Backup e Segurança); Editor só vê Início, Clientes, Produtos e Vendas.</div>
+          <div id="usuarios-lista"></div>
+        </div>
+      </div>
       <div class="card" style="max-width:640px;">
         <div class="card-head"><h2>Sessão</h2></div>
         <div class="card-body">
@@ -44,6 +53,7 @@
       </div>
     `;
     document.getElementById('btn-sair').onclick = ()=> RO.logout();
+    renderUsuarios();
 
     const listaEl = document.getElementById('fatores-lista');
     if(factors.length){
@@ -74,6 +84,43 @@
     }
 
     document.getElementById('btn-ativar').onclick = abrirEnrollModal;
+  }
+
+  async function renderUsuarios(){
+    const wrap = document.getElementById('usuarios-lista');
+    if(!wrap) return;
+    wrap.innerHTML = '<div class="empty"><div class="spinner" style="margin:0 auto;"></div></div>';
+    const { data: usuarios, error } = await RO.sb.from('perfis').select('user_id,email,nome,role').order('created_at');
+    if(error){ wrap.innerHTML = '<div class="empty">'+ICONS.warn+'<div>Erro ao carregar usuários: '+esc(error.message)+'</div></div>'; return; }
+    wrap.innerHTML = `
+      <div class="table-wrap">
+        <table class="data">
+          <thead><tr><th>Usuário</th><th>E-mail</th><th>Função</th></tr></thead>
+          <tbody>
+            ${usuarios.map(u=>`<tr>
+              <td>${esc(u.nome || '—')}</td>
+              <td>${esc(u.email)}</td>
+              <td>
+                <select data-user="${esc(u.user_id)}" ${u.user_id===session.user.id ? 'disabled title="Você não pode alterar seu próprio nível de acesso."' : ''}>
+                  <option value="admin_chefe" ${u.role==='admin_chefe'?'selected':''}>Administrador chefe</option>
+                  <option value="editor" ${u.role==='editor'?'selected':''}>Editor</option>
+                </select>
+              </td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+    wrap.querySelectorAll('select[data-user]').forEach(sel=>{
+      sel.onchange = async ()=>{
+        const novoRole = sel.value;
+        const userId = sel.dataset.user;
+        sel.disabled = true;
+        const { error: eUpd } = await RO.sb.from('perfis').update({ role: novoRole, updated_at: new Date().toISOString() }).eq('user_id', userId);
+        if(eUpd){ toast('Erro ao alterar função: '+eUpd.message, 'err'); sel.disabled = false; return; }
+        toast('Função atualizada.', 'ok');
+        sel.disabled = false;
+      };
+    });
   }
 
   function abrirEnrollModal(){

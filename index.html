@@ -11,7 +11,9 @@
 (async function(){
   const session = await RO.requireAuth();
   if(!session) return;
-  RO_NAV.mount('home');
+  const perfil = await RO.getMeuPerfil();
+  const isAdmin = !!(perfil && perfil.role === 'admin_chefe');
+  RO_NAV.mount('home', perfil);
   RO_NAV.setTitle('Início', 'Visão geral do sistema', '');
 
   const el = document.getElementById('content');
@@ -60,8 +62,8 @@
           <a class="tile" href="clientes.html">${RO_NAV.ICONS.users}<span class="lbl">Clientes</span></a>
           <a class="tile" href="produtos.html">${RO_NAV.ICONS.box}<span class="lbl">Produtos</span></a>
           <a class="tile" href="vendas.html">${RO_NAV.ICONS.file}<span class="lbl">Vendas</span></a>
-          <a class="tile" href="financeiro.html">${RO_NAV.ICONS.coins}<span class="lbl">Financeiro</span></a>
-          <a class="tile" href="backup.html">${RO_NAV.ICONS.upload}<span class="lbl">Backup</span></a>
+          ${isAdmin ? `<a class="tile" href="financeiro.html">${RO_NAV.ICONS.coins}<span class="lbl">Financeiro</span></a>` : ''}
+          ${isAdmin ? `<a class="tile" href="backup.html">${RO_NAV.ICONS.upload}<span class="lbl">Backup</span></a>` : ''}
         </div>
       </div>
     </div>

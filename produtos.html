@@ -11,7 +11,7 @@
 (async function(){
   const session = await RO.requireAuth();
   if(!session) return;
-  RO_NAV.mount('produtos');
+  RO_NAV.mount('produtos', await RO.getMeuPerfil());
   RO_NAV.setTitle('Produtos', 'Catálogo de produtos', RO_NAV.backHomeBtn());
 
   const ICONS = RO_NAV.ICONS;

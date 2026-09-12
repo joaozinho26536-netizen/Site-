@@ -11,7 +11,9 @@
 (async function(){
   const session = await RO.requireAuth();
   if(!session) return;
-  RO_NAV.mount('backup');
+  const perfil = await RO.requireAdmin();
+  if(!perfil) return;
+  RO_NAV.mount('backup', perfil);
   RO_NAV.setTitle('Backup', 'Exportação e restauração de dados', RO_NAV.backHomeBtn());
 
   const ICONS = RO_NAV.ICONS;

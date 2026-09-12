@@ -23,18 +23,20 @@ const ICONS = {
   shield:'<svg viewBox="0 0 20 20" fill="currentColor"><path d="M10 1.4 17.6 4v5.6c0 4.9-3.2 8.7-7.6 9-4.4-.3-7.6-4.1-7.6-9V4L10 1.4Z" opacity=".18"/><path fill-rule="evenodd" clip-rule="evenodd" d="M10 1.4 17.6 4v5.6c0 4.9-3.2 8.7-7.6 9-4.4-.3-7.6-4.1-7.6-9V4L10 1.4Zm0 2.1L4.4 5.4v4.2c0 3.9 2.4 6.8 5.6 7.1 3.2-.3 5.6-3.2 5.6-7.1V5.4L10 3.5Z"/><path d="M9 13.4 5.9 10.3l1.4-1.4L9 10.6l3.7-3.7 1.4 1.4L9 13.4Z"/></svg>',
 };
 
+// adminOnly: só aparece para quem tem perfil.role === 'admin_chefe' — o
+// Editor só enxerga Início, Clientes, Produtos e Vendas.
 const NAV = [
   {id:'home', label:'Início', icon:'home', href:'index.html'},
   {id:'clientes', label:'Clientes', icon:'users', href:'clientes.html'},
   {id:'produtos', label:'Produtos', icon:'box', href:'produtos.html'},
   {id:'vendas', label:'Vendas', icon:'file', href:'vendas.html'},
-  {id:'financeiro', label:'Financeiro', icon:'coins', href:'financeiro.html'},
-  {id:'backup', label:'Backup', icon:'upload', href:'backup.html'},
-  {id:'seguranca', label:'Segurança', icon:'shield', href:'seguranca.html'},
+  {id:'financeiro', label:'Financeiro', icon:'coins', href:'financeiro.html', adminOnly:true},
+  {id:'backup', label:'Backup', icon:'upload', href:'backup.html', adminOnly:true},
+  {id:'seguranca', label:'Segurança', icon:'shield', href:'seguranca.html', adminOnly:true},
 ];
 
-function renderNavHTML(active){
-  return NAV.map(item=>
+function renderNavHTML(active, isAdmin){
+  return NAV.filter(item=> !item.adminOnly || isAdmin).map(item=>
     '<a class="navlink menu-label'+(item.id===active?' active':'')+'" href="'+item.href+'">'+ICONS[item.icon]+'<span>'+item.label+'</span></a>'
   ).join('');
 }
@@ -58,7 +60,11 @@ function toggleSidebar(){
 
 // Monta a casca da página (menu lateral + topbar + área de conteúdo) no início do
 // <body> e devolve os elementos que a própria página vai preencher.
-function mount(active){
+// `perfil` (opcional): { role: 'admin_chefe'|'editor' } — controla quais abas
+// aparecem no menu (ver adminOnly em NAV).
+function mount(active, perfil){
+  const isAdmin = !!(perfil && perfil.role === 'admin_chefe');
+  const papelLabel = perfil ? (isAdmin ? 'Administrador chefe' : 'Editor') : 'v2.0 &middot; Supabase';
   document.body.insertAdjacentHTML('afterbegin', `
     <div id="shell">
       <div class="sidebar-overlay" id="sidebar-overlay"></div>
@@ -67,8 +73,8 @@ function mount(active){
           <div class="brand-name">Ramos de Oliveira</div>
           <div class="brand-sub">Enxovais &middot; Sistema</div>
         </div>
-        <nav class="mainnav" id="mainnav">${renderNavHTML(active)}</nav>
-        <div class="sidebar-foot"><span>v2.0 &middot; Supabase</span><button id="nav-logout" type="button">Sair</button></div>
+        <nav class="mainnav" id="mainnav">${renderNavHTML(active, isAdmin)}</nav>
+        <div class="sidebar-foot"><span>${papelLabel}</span><button id="nav-logout" type="button">Sair</button></div>
       </aside>
       <div id="main">
         <header class="topbar">

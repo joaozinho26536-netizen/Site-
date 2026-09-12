@@ -11,7 +11,9 @@
 (async function(){
   const session = await RO.requireAuth();
   if(!session) return;
-  RO_NAV.mount('financeiro');
+  const perfil = await RO.requireAdmin();
+  if(!perfil) return;
+  RO_NAV.mount('financeiro', perfil);
   RO_NAV.setTitle('Financeiro', 'Vendas e custo por mês', RO_NAV.backHomeBtn());
 
   const ICONS = RO_NAV.ICONS;

@@ -11,7 +11,7 @@
 (async function(){
   const session = await RO.requireAuth();
   if(!session) return;
-  RO_NAV.mount('clientes');
+  RO_NAV.mount('clientes', await RO.getMeuPerfil());
   RO_NAV.setTitle('Clientes', 'Cadastro de clientes', RO_NAV.backHomeBtn());
 
   const ICONS = RO_NAV.ICONS;

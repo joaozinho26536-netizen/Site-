@@ -16,7 +16,7 @@
 (async function(){
   const session = await RO.requireAuth();
   if(!session) return;
-  RO_NAV.mount('vendas');
+  RO_NAV.mount('vendas', await RO.getMeuPerfil());
 
   const ICONS = RO_NAV.ICONS;
   const esc = RO.esc, fmtBRL = RO.fmtBRL, fmtDate = RO.fmtDate, todayISO = RO.todayISO, toast = RO.toast;
