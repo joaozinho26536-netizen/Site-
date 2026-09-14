@@ -494,7 +494,10 @@
       codigo_produto: it.codigo_produto, descricao: it.descricao,
       uni: it.uni||1, valor_unit: it.valor_venda||0, valor_custo: it.valor_compra||0,
       parcelas_qtd: it.parcelas_qtd||1, valor_parcela: it.valor_parcela||0,
-      produtos_extras: (it.produtos_extras||[]).map(p=>({...p})),
+      produtos_extras: (it.produtos_extras||[]).map(p=>({
+        produtoLabel: p.descricao ? (p.descricao+' (cód. '+p.codigo_produto+')') : '',
+        codigo_produto: p.codigo_produto, descricao: p.descricao, uni: p.uni||1, valor_unit: p.valor_unit||0,
+      })),
     }));
     if(pedidoUI.novoItens.length===0) pedidoUI.novoItens.push({ produtoLabel:'', codigo_produto:'', descricao:'', uni:1, valor_unit:0, parcelas_qtd:1, valor_parcela:0 });
     const clienteDup = S.clientes.get(pedido.codigo_cliente);
@@ -901,35 +904,39 @@
 
     function blankItem(){ return { produtoLabel:'', codigo_produto:'', descricao:'', uni:1, valor_unit:0, parcelas_qtd:1, valor_parcela:0, produtos_extras:[] }; }
 
+    // Total do grupo (produto principal + produtos do combo) — o valor de
+    // cada produto do combo entra na conta; Parcelas e Valor/parcela são
+    // únicos para o grupo inteiro (mesclados/rowspan na tabela).
+    function grupoTotal(it){
+      const totalPrincipal = (it.valor_unit||0) * (it.uni||1);
+      const totalExtras = (it.produtos_extras||[]).reduce((s,p)=> s + (Number(p.valor_unit)||0)*(Number(p.uni)||1), 0);
+      return totalPrincipal + totalExtras;
+    }
     function renderItensRows(){
       const body = document.getElementById('np-itens-body');
       body.innerHTML = pedidoUI.novoItens.map((it,idx)=>{
         const extras = it.produtos_extras||[];
-        const linhaCombo = extras.length ? `
-        <tr class="np-combo-row">
-          <td colspan="6" style="padding-top:0; padding-bottom:12px;">
-            <div style="display:flex; flex-wrap:wrap; align-items:center; gap:6px;">
-              <span style="font-size:11.5px; color:var(--muted);">No combo desta parcela:</span>
-              ${extras.map((p,exIdx)=>`
-                <span class="badge" style="display:inline-flex; align-items:center; gap:5px;">
-                  ${esc(p.uni||1)}x ${esc(p.descricao)}
-                  <button type="button" class="np-combo-del" data-idx="${idx}" data-exidx="${exIdx}" title="Remover do combo" style="border:none; background:none; cursor:pointer; padding:0; line-height:1; color:inherit; font-size:14px;">&times;</button>
-                </span>`).join('')}
-            </div>
-          </td>
-        </tr>` : '';
-        return `
+        const rowspan = 1 + extras.length;
+        const linhaPrincipal = `
         <tr>
           <td style="min-width:220px;"><input list="dl-produtos" data-idx="${idx}" class="np-produto" value="${esc(it.produtoLabel)}" placeholder="Buscar produto…"></td>
           <td style="width:70px;"><input type="number" min="1" data-idx="${idx}" class="np-uni" value="${it.uni}"></td>
           <td class="num" style="width:120px;"><input type="number" step="0.01" data-idx="${idx}" class="np-unit" value="${it.valor_unit}"></td>
-          <td style="width:90px;"><input type="number" min="1" data-idx="${idx}" class="np-parcelas" value="${it.parcelas_qtd}"></td>
-          <td class="num" style="width:120px;"><input type="number" step="0.01" data-idx="${idx}" class="np-valorparcela" value="${it.valor_parcela}"></td>
+          <td class="num" style="width:90px;" rowspan="${rowspan}"><input type="number" min="1" data-idx="${idx}" class="np-parcelas" value="${it.parcelas_qtd}"></td>
+          <td class="num" style="width:120px;" rowspan="${rowspan}"><input type="number" step="0.01" data-idx="${idx}" class="np-valorparcela" value="${it.valor_parcela}"></td>
           <td style="white-space:nowrap;">
             <button class="iconbtn np-combo-add" data-idx="${idx}" title="Adicionar produto nesta mesma parcela (combo)">${ICONS.plus}</button>
             <button class="iconbtn np-del" data-idx="${idx}" title="Remover">${ICONS.trash}</button>
           </td>
-        </tr>${linhaCombo}`;
+        </tr>`;
+        const linhasExtras = extras.map((p,exIdx)=>`
+        <tr class="np-combo-row">
+          <td style="min-width:220px;"><input list="dl-produtos" data-idx="${idx}" data-exidx="${exIdx}" class="npx-produto" value="${esc(p.produtoLabel||p.descricao||'')}" placeholder="Buscar produto…"></td>
+          <td style="width:70px;"><input type="number" min="1" data-idx="${idx}" data-exidx="${exIdx}" class="npx-uni" value="${p.uni||1}"></td>
+          <td class="num" style="width:120px;"><input type="number" step="0.01" data-idx="${idx}" data-exidx="${exIdx}" class="npx-unit" value="${p.valor_unit||0}"></td>
+          <td><button class="iconbtn npx-del" data-idx="${idx}" data-exidx="${exIdx}" title="Remover do combo">${ICONS.trash}</button></td>
+        </tr>`).join('');
+        return linhaPrincipal + linhasExtras;
       }).join('');
       if(!document.getElementById('dl-produtos')){
         document.getElementById('np-itens-body').insertAdjacentHTML('afterend', `<datalist id="dl-produtos">${produtoOptionsDatalist()}</datalist>`);
@@ -946,54 +953,51 @@
       body.querySelectorAll('.np-parcelas').forEach(inp=> inp.oninput = (e)=>{ pedidoUI.novoItens[+e.target.dataset.idx].parcelas_qtd = parseInt(e.target.value)||1; recalcRow(+e.target.dataset.idx); updateTotal(); });
       body.querySelectorAll('.np-valorparcela').forEach(inp=> inp.oninput = (e)=>{ pedidoUI.novoItens[+e.target.dataset.idx].valor_parcela = parseFloat(e.target.value)||0; updateTotal(); });
       body.querySelectorAll('.np-del').forEach(btn=> btn.onclick = (e)=>{ pedidoUI.novoItens.splice(+e.target.closest('button').dataset.idx,1); if(pedidoUI.novoItens.length===0) pedidoUI.novoItens.push(blankItem()); renderItensRows(); updateTotal(); });
-      body.querySelectorAll('.np-combo-add').forEach(btn=> btn.onclick = ()=> abrirAdicionarComboModal(+btn.dataset.idx));
-      body.querySelectorAll('.np-combo-del').forEach(btn=> btn.onclick = ()=>{
-        pedidoUI.novoItens[+btn.dataset.idx].produtos_extras.splice(+btn.dataset.exidx, 1);
+      body.querySelectorAll('.np-combo-add').forEach(btn=> btn.onclick = ()=>{
+        const idx = +btn.dataset.idx;
+        const it = pedidoUI.novoItens[idx];
+        it.produtos_extras = it.produtos_extras || [];
+        it.produtos_extras.push({ produtoLabel:'', codigo_produto:'', descricao:'', uni:1, valor_unit:0 });
+        renderItensRows();
+        const novoIdx = it.produtos_extras.length-1;
+        const inp = document.querySelector('.npx-produto[data-idx="'+idx+'"][data-exidx="'+novoIdx+'"]');
+        if(inp) inp.focus();
+      });
+      body.querySelectorAll('.npx-produto').forEach(inp=> inp.onchange = (e)=>{
+        const idx = +e.target.dataset.idx, exIdx = +e.target.dataset.exidx;
+        const extra = pedidoUI.novoItens[idx].produtos_extras[exIdx];
+        extra.produtoLabel = e.target.value;
+        const prod = findProdutoByLabel(e.target.value);
+        if(prod){ extra.codigo_produto = prod.codigo; extra.descricao = prod.descricao; extra.valor_unit = Number(prod.valor_venda)||0; }
+        recalcRow(idx); renderItensRows();
+      });
+      body.querySelectorAll('.npx-uni').forEach(inp=> inp.oninput = (e)=>{
+        const idx = +e.target.dataset.idx, exIdx = +e.target.dataset.exidx;
+        pedidoUI.novoItens[idx].produtos_extras[exIdx].uni = parseFloat(e.target.value)||1;
+        recalcRow(idx); updateTotal();
+      });
+      body.querySelectorAll('.npx-unit').forEach(inp=> inp.oninput = (e)=>{
+        const idx = +e.target.dataset.idx, exIdx = +e.target.dataset.exidx;
+        pedidoUI.novoItens[idx].produtos_extras[exIdx].valor_unit = parseFloat(e.target.value)||0;
+        recalcRow(idx); updateTotal();
+      });
+      body.querySelectorAll('.npx-del').forEach(btn=> btn.onclick = ()=>{
+        const idx = +btn.dataset.idx, exIdx = +btn.dataset.exidx;
+        pedidoUI.novoItens[idx].produtos_extras.splice(exIdx, 1);
+        recalcRow(idx);
         renderItensRows();
       });
       updateTotal();
     }
-    function abrirAdicionarComboModal(idx){
-      const back = document.createElement('div');
-      back.className = 'modal-backdrop';
-      back.innerHTML = `
-        <div class="modal" style="max-width:420px;">
-          <div class="modal-head"><h3>Adicionar produto ao combo</h3><button class="iconbtn" id="cb-close" type="button">&times;</button></div>
-          <div class="modal-body">
-            <div style="font-size:12.5px; color:var(--muted); margin-bottom:12px;">Esse produto entra na mesma parcela desta linha — sem preço nem controle de estoque próprios, só para aparecer junto na ficha do pedido.</div>
-            <div class="field-grid" style="grid-template-columns:1fr 90px;">
-              <div class="field"><label>Produto</label><input id="cb-produto" list="dl-produtos" placeholder="Buscar produto…"></div>
-              <div class="field"><label>Uni.</label><input id="cb-uni" type="number" min="1" value="1"></div>
-            </div>
-          </div>
-          <div class="modal-foot"><button class="btn" id="cb-cancel" type="button">Cancelar</button><button class="btn primary" id="cb-add" type="button">${ICONS.plus} Adicionar</button></div>
-        </div>`;
-      document.body.appendChild(back);
-      const close = ()=> back.remove();
-      back.querySelector('#cb-close').onclick = close;
-      back.querySelector('#cb-cancel').onclick = close;
-      back.onclick = (e)=>{ if(e.target===back) close(); };
-      back.querySelector('#cb-add').onclick = ()=>{
-        const label = back.querySelector('#cb-produto').value.trim();
-        const prod = label ? findProdutoByLabel(label) : null;
-        if(!prod){ toast('Selecione um produto válido da lista.', 'err'); return; }
-        const uni = parseInt(back.querySelector('#cb-uni').value, 10) || 1;
-        const it = pedidoUI.novoItens[idx];
-        it.produtos_extras = it.produtos_extras || [];
-        it.produtos_extras.push({ codigo_produto: prod.codigo, descricao: prod.descricao, uni });
-        close();
-        renderItensRows();
-      };
-    }
     function recalcRow(idx){
       const it = pedidoUI.novoItens[idx];
-      const total = (it.valor_unit||0) * (it.uni||1);
+      const total = grupoTotal(it);
       it.valor_parcela = it.parcelas_qtd ? Math.round((total/it.parcelas_qtd)*100)/100 : total;
       const cell = document.querySelector('.np-valorparcela[data-idx="'+idx+'"]');
       if(cell) cell.value = it.valor_parcela;
     }
     function updateTotal(){
-      const total = pedidoUI.novoItens.reduce((s,it)=> s + (it.valor_unit||0)*(it.uni||1), 0);
+      const total = pedidoUI.novoItens.reduce((s,it)=> s + grupoTotal(it), 0);
       const elT = document.getElementById('np-total'); if(elT) elT.textContent = fmtBRL(total);
     }
 
@@ -1011,7 +1015,9 @@
         codigo_produto: it.codigo_produto, descricao: it.descricao, uni: it.uni||1,
         valor_venda: it.valor_unit||0, valor_compra: it.valor_custo||0,
         parcelas_qtd: it.parcelas_qtd||1, valor_parcela: it.valor_parcela||0,
-        produtos_extras: it.produtos_extras || [],
+        produtos_extras: (it.produtos_extras||[]).filter(p=>p.codigo_produto).map(p=>({
+          codigo_produto: p.codigo_produto, descricao: p.descricao, uni: p.uni||1, valor_unit: p.valor_unit||0,
+        })),
         parcelas: Array.from({length: it.parcelas_qtd||1}, (_,i)=> blankParcela(i+1)),
       }));
       const saveBtn = document.getElementById('np-salvar');
