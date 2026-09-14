@@ -142,9 +142,31 @@ function resolvePageFile(href){
   }catch(e){ return null; }
 }
 
+// Detecta se assets/supabase-client.js ou assets/nav.js mudaram desde que a
+// aba foi aberta — sem isso, uma navegação sem recarregar a página continua
+// rodando o JS antigo (os <script src> não são recarregados), então uma
+// função nova adicionada num deploy (ex.: RO.confirmar) simplesmente não
+// existiria até um F5, e um clique que dependesse dela ficaria sem reação e
+// sem erro visível. Detectado, cai para um recarregamento completo — que já
+// pega a versão nova de tudo.
+let assetSnapshot = null;
+async function fetchTexto(url){
+  try{
+    const r = await fetch(url, { cache:'no-store' });
+    return r.ok ? await r.text() : null;
+  }catch(e){ return null; }
+}
+async function assetsMudaram(){
+  const [sc, nv] = await Promise.all([fetchTexto('assets/supabase-client.js'), fetchTexto('assets/nav.js')]);
+  if(sc==null || nv==null) return false; // falha de rede não deve travar a navegação
+  if(!assetSnapshot){ assetSnapshot = { sc, nv }; return false; }
+  return sc !== assetSnapshot.sc || nv !== assetSnapshot.nv;
+}
+
 async function navegarPara(href, push){
   const file = resolvePageFile(href);
   if(!file){ window.location.href = href; return; }
+  if(await assetsMudaram()){ window.location.href = href; return; }
   closeSidebar();
   // remove elementos que uma página anterior tenha inserido fora do próprio
   // #content (ex.: a barra de sub-abas de vendas.html)
@@ -193,6 +215,11 @@ let routerPronto = false;
 function initRouter(){
   if(routerPronto) return;
   routerPronto = true;
+  // captura a "foto" dos assets logo no carregamento da página — assim,
+  // mesmo o primeiro clique após um deploy novo já é comparado contra ela.
+  Promise.all([fetchTexto('assets/supabase-client.js'), fetchTexto('assets/nav.js')]).then(([sc,nv])=>{
+    if(sc!=null && nv!=null) assetSnapshot = { sc, nv };
+  });
   document.addEventListener('click', (e)=>{
     if(e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     const a = e.target.closest('a[href]');
