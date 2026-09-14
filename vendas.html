@@ -458,7 +458,7 @@
                   const remanescente = remanescenteParcela(it.valor_parcela, p);
                   const pagamentos = pagamentosDaParcela(p);
                   return `<tr>
-                    <td>${pIdx===0?esc(it.descricao)+((it.produtos_extras&&it.produtos_extras.length)?'<div style="font-size:11px; color:var(--muted); font-weight:400; margin-top:2px;">+ '+it.produtos_extras.map(p=>esc(p.descricao)).join(', ')+'</div>':''):''}</td>
+                    <td>${pIdx===0?esc(it.descricao)+((it.produtos_extras&&it.produtos_extras.length)?'<div style="font-size:11px; color:var(--muted); font-weight:400; margin-top:2px;">+ '+it.produtos_extras.map(p=>esc(p.uni||1)+'x '+esc(p.descricao)).join(', ')+'</div>':''):''}</td>
                     <td>${pIdx===0?esc(it.uni):''}</td>
                     <td>${p.n}/${it.parcelas_qtd}</td>
                     <td class="num">${fmtBRL(it.valor_parcela)}</td>
@@ -704,7 +704,7 @@
             <div class="field" style="width:110px;"><label>Total</label><div class="ef-itemtotal" data-it="${itIdx}" style="padding:8px 0; font-weight:600;">${fmtBRL(itemTotal(it))}</div></div>
             <button class="iconbtn ef-del-item" data-it="${itIdx}" title="Remover produto">${ICONS.trash}</button>
           </div>
-          ${(it.produtos_extras&&it.produtos_extras.length) ? `<div style="font-size:11.5px; color:var(--muted); margin-top:4px;">No combo desta parcela: ${it.produtos_extras.map(p=>esc(p.descricao)).join(', ')}</div>` : ''}
+          ${(it.produtos_extras&&it.produtos_extras.length) ? `<div style="font-size:11.5px; color:var(--muted); margin-top:4px;">No combo desta parcela: ${it.produtos_extras.map(p=>esc(p.uni||1)+'x '+esc(p.descricao)).join(', ')}</div>` : ''}
           <div class="table-wrap" style="margin-top:10px;">
             <table class="data">
               <thead><tr><th style="width:70px;">Parcela</th><th>Data pgto.</th><th class="num">Recebimento</th><th class="num">Saldo devedor</th></tr></thead>
@@ -912,7 +912,7 @@
               <span style="font-size:11.5px; color:var(--muted);">No combo desta parcela:</span>
               ${extras.map((p,exIdx)=>`
                 <span class="badge" style="display:inline-flex; align-items:center; gap:5px;">
-                  ${esc(p.descricao)}
+                  ${esc(p.uni||1)}x ${esc(p.descricao)}
                   <button type="button" class="np-combo-del" data-idx="${idx}" data-exidx="${exIdx}" title="Remover do combo" style="border:none; background:none; cursor:pointer; padding:0; line-height:1; color:inherit; font-size:14px;">&times;</button>
                 </span>`).join('')}
             </div>
@@ -961,7 +961,10 @@
           <div class="modal-head"><h3>Adicionar produto ao combo</h3><button class="iconbtn" id="cb-close" type="button">&times;</button></div>
           <div class="modal-body">
             <div style="font-size:12.5px; color:var(--muted); margin-bottom:12px;">Esse produto entra na mesma parcela desta linha — sem preço nem controle de estoque próprios, só para aparecer junto na ficha do pedido.</div>
-            <div class="field"><label>Produto</label><input id="cb-produto" list="dl-produtos" placeholder="Buscar produto…"></div>
+            <div class="field-grid" style="grid-template-columns:1fr 90px;">
+              <div class="field"><label>Produto</label><input id="cb-produto" list="dl-produtos" placeholder="Buscar produto…"></div>
+              <div class="field"><label>Uni.</label><input id="cb-uni" type="number" min="1" value="1"></div>
+            </div>
           </div>
           <div class="modal-foot"><button class="btn" id="cb-cancel" type="button">Cancelar</button><button class="btn primary" id="cb-add" type="button">${ICONS.plus} Adicionar</button></div>
         </div>`;
@@ -974,9 +977,10 @@
         const label = back.querySelector('#cb-produto').value.trim();
         const prod = label ? findProdutoByLabel(label) : null;
         if(!prod){ toast('Selecione um produto válido da lista.', 'err'); return; }
+        const uni = parseInt(back.querySelector('#cb-uni').value, 10) || 1;
         const it = pedidoUI.novoItens[idx];
         it.produtos_extras = it.produtos_extras || [];
-        it.produtos_extras.push({ codigo_produto: prod.codigo, descricao: prod.descricao });
+        it.produtos_extras.push({ codigo_produto: prod.codigo, descricao: prod.descricao, uni });
         close();
         renderItensRows();
       };
