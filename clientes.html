@@ -15,7 +15,7 @@
   RO_NAV.setTitle('Clientes', 'Cadastro de clientes', RO_NAV.backHomeBtn());
 
   const ICONS = RO_NAV.ICONS;
-  const esc = RO.esc, fmtDate = RO.fmtDate, onlyDigits = RO.onlyDigits, normName = RO.normName, toast = RO.toast, todayISO = RO.todayISO;
+  const esc = RO.esc, fmtDate = RO.fmtDate, onlyDigits = RO.onlyDigits, normName = RO.normName, toast = RO.toast, todayISO = RO.todayISO, confirmar = RO.confirmar;
 
   const S = { clientes: new Map(), loaded: false };
   const ui = {
@@ -188,7 +188,7 @@
 
     async function bulkExcluirClientes(){
       const codigos = Array.from(ui.selected);
-      if(!confirm('Excluir '+codigos.length+' cliente(s) selecionado(s)? Esta ação não pode ser desfeita.')) return;
+      if(!(await confirmar('Excluir '+codigos.length+' cliente(s) selecionado(s)? Esta ação não pode ser desfeita.', {confirmar:'Excluir'}))) return;
       let ok=0, fail=0;
       for(const codigo of codigos){
         const { error } = await RO.sb.from('clientes').delete().eq('codigo', codigo);
@@ -204,7 +204,7 @@
 
   async function deleteCliente(codigo){
     const c = S.clientes.get(codigo);
-    if(!confirm('Excluir o cliente "'+(c?c.nome:codigo)+'"? Esta ação não pode ser desfeita.')) return;
+    if(!(await confirmar('Excluir o cliente "'+(c?c.nome:codigo)+'"? Esta ação não pode ser desfeita.', {confirmar:'Excluir'}))) return;
     const { error } = await RO.sb.from('clientes').delete().eq('codigo', codigo);
     if(error){ toast('Erro ao excluir: '+error.message, 'err'); return; }
     S.clientes.delete(codigo);
@@ -279,7 +279,7 @@
       if(!isEdit){
         let sameName = null;
         S.clientes.forEach(other=>{ if(normName(other.nome)===normName(nome)) sameName = other; });
-        if(sameName && !confirm('Já existe um cliente chamado "'+sameName.nome+'" (código '+sameName.codigo+'). Deseja cadastrar mesmo assim?')) return;
+        if(sameName && !(await confirmar('Já existe um cliente chamado "'+sameName.nome+'" (código '+sameName.codigo+'). Deseja cadastrar mesmo assim?', {perigo:false, confirmar:'Cadastrar mesmo assim'}))) return;
       }
 
       const data = {

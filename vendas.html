@@ -19,7 +19,7 @@
   RO_NAV.mount('vendas', await RO.getMeuPerfil());
 
   const ICONS = RO_NAV.ICONS;
-  const esc = RO.esc, fmtBRL = RO.fmtBRL, fmtDate = RO.fmtDate, todayISO = RO.todayISO, toast = RO.toast;
+  const esc = RO.esc, fmtBRL = RO.fmtBRL, fmtDate = RO.fmtDate, todayISO = RO.todayISO, toast = RO.toast, confirmar = RO.confirmar;
   const fmtNumBR = RO.fmtNumBR, parseNumBR = RO.parseNumBR, maskMoneyInput = RO.maskMoneyInput;
   const proximoPagamentoPedido = RO.proximoPagamentoPedido, parcelaVencimentoEstimado = RO.parcelaVencimentoEstimado;
   const pagamentosDaParcela = RO.pagamentosDaParcela, remanescenteParcela = RO.remanescenteParcela;
@@ -506,7 +506,7 @@
     renderTabs(); render();
   }
   async function excluirFicha(pedido, container){
-    if(!confirm('Excluir definitivamente o pedido nº '+pedido.numero+'? Esta ação não pode ser desfeita.')) return;
+    if(!(await confirmar('Excluir definitivamente o pedido nº '+pedido.numero+'? Esta ação não pode ser desfeita.', {confirmar:'Excluir'}))) return;
     try{
       await ajustarEstoquePedido(pedido.itens, []);
       const { error } = await RO.sb.from('pedidos').delete().eq('numero', pedido.numero);
@@ -736,11 +736,11 @@
       const valorInp = card.querySelector('.ef-valorparcela');
       maskMoneyInput(valorInp);
       valorInp.addEventListener('input', ()=>{ draft.itens[itIdx].valor_parcela = parseNumBR(valorInp.value); recomputeSaldos(itIdx); });
-      card.querySelector('.ef-parcelasqtd').onchange = (e)=>{
+      card.querySelector('.ef-parcelasqtd').onchange = async (e)=>{
         let qtd = parseInt(e.target.value)||1; if(qtd<1) qtd=1;
         const it = draft.itens[itIdx];
         const removendoPagas = qtd < it.parcelas.length && it.parcelas.slice(qtd).some(p=>p.data_pgto);
-        if(removendoPagas && !confirm('Reduzir o nº de parcelas vai remover parcelas que já têm pagamento registrado. Continuar?')){
+        if(removendoPagas && !(await confirmar('Reduzir o nº de parcelas vai remover parcelas que já têm pagamento registrado. Continuar?', {confirmar:'Continuar'}))){
           e.target.value = it.parcelas_qtd; return;
         }
         while(it.parcelas.length < qtd) it.parcelas.push(blankParcela(it.parcelas.length+1));
@@ -797,9 +797,9 @@
           recomputeSaldos(it2);
         });
       });
-      card.querySelector('.ef-del-item').onclick = ()=>{
+      card.querySelector('.ef-del-item').onclick = async ()=>{
         if(draft.itens.length<=1){ toast('O pedido precisa ter ao menos um produto.', 'err'); return; }
-        if(!confirm('Remover este produto da ficha?')) return;
+        if(!(await confirmar('Remover este produto da ficha?', {confirmar:'Remover'}))) return;
         draft.itens.splice(itIdx,1);
         renderAllItens();
       };

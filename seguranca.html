@@ -17,7 +17,7 @@
   RO_NAV.setTitle('Segurança', 'Autenticação de dois fatores, sessão e usuários', RO_NAV.backHomeBtn());
 
   const ICONS = RO_NAV.ICONS;
-  const esc = RO.esc, toast = RO.toast;
+  const esc = RO.esc, toast = RO.toast, confirmar = RO.confirmar;
   const el = document.getElementById('content');
 
   async function render(){
@@ -72,7 +72,7 @@
         </div>`;
       listaEl.querySelectorAll('[data-unenroll]').forEach(btn=>{
         btn.onclick = async ()=>{
-          if(!confirm('Desativar a autenticação de dois fatores? A conta ficará protegida só pela senha.')) return;
+          if(!(await confirmar('Desativar a autenticação de dois fatores? A conta ficará protegida só pela senha.', {confirmar:'Desativar'}))) return;
           const { error } = await RO.sb.auth.mfa.unenroll({ factorId: btn.dataset.unenroll });
           if(error){ toast('Erro ao desativar: '+error.message, 'err'); return; }
           toast('2FA desativado.', 'ok');

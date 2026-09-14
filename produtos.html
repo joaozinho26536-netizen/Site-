@@ -15,7 +15,7 @@
   RO_NAV.setTitle('Produtos', 'Catálogo de produtos', RO_NAV.backHomeBtn());
 
   const ICONS = RO_NAV.ICONS;
-  const esc = RO.esc, fmtBRL = RO.fmtBRL, normName = RO.normName, toast = RO.toast;
+  const esc = RO.esc, fmtBRL = RO.fmtBRL, normName = RO.normName, toast = RO.toast, confirmar = RO.confirmar;
   const estoqueControlado = RO.estoqueControlado, estoqueBaixo = RO.estoqueBaixo;
 
   const S = { produtos: new Map(), loaded: false };
@@ -173,7 +173,7 @@
 
     async function bulkExcluirProdutos(){
       const codigos = Array.from(ui.selected);
-      if(!confirm('Excluir '+codigos.length+' produto(s) selecionado(s)? Esta ação não pode ser desfeita.')) return;
+      if(!(await confirmar('Excluir '+codigos.length+' produto(s) selecionado(s)? Esta ação não pode ser desfeita.', {confirmar:'Excluir'}))) return;
       let ok=0, fail=0;
       for(const codigo of codigos){
         const { error } = await RO.sb.from('produtos').delete().eq('codigo', codigo);
@@ -189,7 +189,7 @@
 
   async function deleteProduto(codigo){
     const p = S.produtos.get(codigo);
-    if(!confirm('Excluir o produto "'+(p?p.descricao:codigo)+'"? Esta ação não pode ser desfeita.')) return;
+    if(!(await confirmar('Excluir o produto "'+(p?p.descricao:codigo)+'"? Esta ação não pode ser desfeita.', {confirmar:'Excluir'}))) return;
     const { error } = await RO.sb.from('produtos').delete().eq('codigo', codigo);
     if(error){ toast('Erro ao excluir: '+error.message, 'err'); return; }
     S.produtos.delete(codigo);
@@ -262,7 +262,7 @@
       if(!isEdit){
         let sameDesc = null;
         S.produtos.forEach(other=>{ if(normName(other.descricao)===normName(descricao)) sameDesc = other; });
-        if(sameDesc && !confirm('Já existe um produto "'+sameDesc.descricao+'" (código '+sameDesc.codigo+'). Deseja cadastrar mesmo assim?')) return;
+        if(sameDesc && !(await confirmar('Já existe um produto "'+sameDesc.descricao+'" (código '+sameDesc.codigo+'). Deseja cadastrar mesmo assim?', {perigo:false, confirmar:'Cadastrar mesmo assim'}))) return;
       }
       const valor_compra = parseFloat(back.querySelector('#p-compra').value)||0;
       const valor_venda = parseFloat(back.querySelector('#p-venda').value)||0;

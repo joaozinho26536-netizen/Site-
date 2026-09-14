@@ -42,6 +42,38 @@ function maskMoneyInput(el){
   });
 }
 
+/* ---------------- confirmação (substitui o confirm() nativo do navegador,
+   que não pode ser estilizado e mostra a URL do site) ---------------- */
+function confirmar(mensagem, opts){
+  opts = opts || {};
+  return new Promise((resolve)=>{
+    const back = document.createElement('div');
+    back.className = 'modal-backdrop';
+    back.innerHTML = `
+      <div class="modal" style="max-width:420px;">
+        <div class="modal-head"><h3>${esc(opts.titulo || 'Confirmar ação')}</h3><button class="iconbtn" id="cf-close" type="button">&times;</button></div>
+        <div class="modal-body"><p style="font-size:13.5px; line-height:1.5; margin:0;">${esc(mensagem)}</p></div>
+        <div class="modal-foot">
+          <button class="btn" id="cf-cancel" type="button">${esc(opts.cancelar || 'Cancelar')}</button>
+          <button class="btn ${opts.perigo===false ? 'primary' : 'danger'}" id="cf-ok" type="button">${esc(opts.confirmar || 'Confirmar')}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(back);
+    function onKey(e){ if(e.key==='Escape') finish(false); }
+    function finish(v){
+      document.removeEventListener('keydown', onKey);
+      back.remove();
+      resolve(v);
+    }
+    back.querySelector('#cf-close').onclick = ()=> finish(false);
+    back.querySelector('#cf-cancel').onclick = ()=> finish(false);
+    back.querySelector('#cf-ok').onclick = ()=> finish(true);
+    back.onclick = (e)=>{ if(e.target===back) finish(false); };
+    document.addEventListener('keydown', onKey);
+    back.querySelector('#cf-ok').focus();
+  });
+}
+
 /* ---------------- toasts ---------------- */
 function toast(msg, kind){
   let wrap = document.getElementById('toasts');
@@ -388,7 +420,7 @@ async function requireAdmin(){
 
 window.RO = {
   sb, fmtBRL, fmtDate, todayISO, esc, onlyDigits, normName, fmtNumBR, parseNumBR, maskMoneyInput,
-  toast, sortRows, thSort, wireSortHeaders, rerenderKeepingFocus, requireAuth, logout,
+  toast, confirmar, sortRows, thSort, wireSortHeaders, rerenderKeepingFocus, requireAuth, logout,
   getMeuPerfil, requireAdmin,
   loadAllRows, loadClientes, loadClientesMap, loadProdutos, loadProdutosMap,
   loadPedidos, loadPedidosMap, loadPedidoByNumero,

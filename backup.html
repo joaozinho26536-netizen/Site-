@@ -17,7 +17,7 @@
   RO_NAV.setTitle('Backup', 'Exportação e restauração de dados', RO_NAV.backHomeBtn());
 
   const ICONS = RO_NAV.ICONS;
-  const esc = RO.esc, fmtBRL = RO.fmtBRL, fmtDate = RO.fmtDate, todayISO = RO.todayISO, toast = RO.toast;
+  const esc = RO.esc, fmtBRL = RO.fmtBRL, fmtDate = RO.fmtDate, todayISO = RO.todayISO, toast = RO.toast, confirmar = RO.confirmar;
 
   const el = document.getElementById('content');
   el.innerHTML = `
@@ -149,7 +149,7 @@
       toast('Arquivo de backup inválido.', 'err'); return;
     }
     const totalRegistros = (obj.clientes||[]).length + (obj.produtos||[]).length + (obj.pedidos||[]).length;
-    if(!confirm('Restaurar este backup vai sobrescrever os registros com os mesmos códigos/números já cadastrados ('+totalRegistros+' registro(s) no arquivo). Continuar?')) return;
+    if(!(await confirmar('Restaurar este backup vai sobrescrever os registros com os mesmos códigos/números já cadastrados ('+totalRegistros+' registro(s) no arquivo). Continuar?', {confirmar:'Restaurar'}))) return;
     let ok=0, fail=0, done=0;
     function tick(){ done++; statusEl.textContent = 'Restaurando… '+done+'/'+totalRegistros; }
 
