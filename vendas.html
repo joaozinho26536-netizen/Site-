@@ -422,7 +422,7 @@
   /* -------- ficha do pedido -------- */
   function renderFichaHTML(pedido){
     const cliente = S.clientes.get(pedido.codigo_cliente);
-    const { totalGeral, totalRecebido, totalDesconto, quitado } = RO.pedidoTotais(pedido);
+    const { totalGeral, totalRecebido, totalDesconto, saldoDevedor, quitado } = RO.pedidoTotais(pedido);
     const valorEntrada = Number(pedido.valor_entrada)||0;
     return `
       <div class="ficha">
@@ -477,7 +477,7 @@
           </table>
         </div>
         <div style="text-align:right; margin-top:12px; font-size:13.5px;">
-          Total do pedido: <strong>${fmtBRL(totalGeral)}</strong>${valorEntrada>0?` &middot; Entrada: <strong>${fmtBRL(valorEntrada)}</strong>`:''} &middot; Recebido: <strong>${fmtBRL(totalRecebido)}</strong>${totalDesconto>0?` &middot; Desconto: <strong>${fmtBRL(totalDesconto)}</strong>`:''} &middot; Saldo: <strong>${fmtBRL(Math.max(totalGeral-totalRecebido-totalDesconto,0))}</strong>
+          Total do pedido: <strong>${fmtBRL(totalGeral)}</strong>${valorEntrada>0?` &middot; Entrada: <strong>${fmtBRL(valorEntrada)}</strong>`:''} &middot; Recebido: <strong>${fmtBRL(totalRecebido)}</strong>${totalDesconto>0?` &middot; Desconto: <strong>${fmtBRL(totalDesconto)}</strong>`:''} &middot; Saldo: <strong>${fmtBRL(saldoDevedor)}</strong>
         </div>
       </div>
     `;
@@ -642,7 +642,8 @@
       const totalDesconto = draft.itens.reduce((s,it)=> s + (it.parcelas||[]).reduce((s2,p)=> s2+(Number(p.desconto)||0), 0), 0);
       const totalEntrada = Number(draft.valor_entrada)||0;
       const totalRecebido = totalRecebidoParcelas + totalEntrada;
-      back.querySelector('#ef-resumo').innerHTML = `Total: <strong>${fmtBRL(totalGeral)}</strong>${totalEntrada>0?` &middot; Entrada: <strong>${fmtBRL(totalEntrada)}</strong>`:''} &middot; Recebido: <strong>${fmtBRL(totalRecebido)}</strong>${totalDesconto>0?` &middot; Desconto: <strong>${fmtBRL(totalDesconto)}</strong>`:''} &middot; Saldo: <strong>${fmtBRL(Math.max(totalGeral-totalRecebido-totalDesconto,0))}</strong>`;
+      const saldoDevedor = draft.itens.reduce((s,it)=> s + (it.parcelas||[]).reduce((s2,p)=> s2+remanescenteParcela(it.valor_parcela, p), 0), 0);
+      back.querySelector('#ef-resumo').innerHTML = `Total: <strong>${fmtBRL(totalGeral)}</strong>${totalEntrada>0?` &middot; Entrada: <strong>${fmtBRL(totalEntrada)}</strong>`:''} &middot; Recebido: <strong>${fmtBRL(totalRecebido)}</strong>${totalDesconto>0?` &middot; Desconto: <strong>${fmtBRL(totalDesconto)}</strong>`:''} &middot; Saldo: <strong>${fmtBRL(saldoDevedor)}</strong>`;
     }
     const entradaInp = back.querySelector('#ef-entrada');
     maskMoneyInput(entradaInp);

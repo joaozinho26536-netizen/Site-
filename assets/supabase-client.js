@@ -255,8 +255,21 @@ function pedidoTotais(pedido){
   const totalRecebidoParcelas = (pedido.itens||[]).reduce((s,it)=> s + (it.parcelas||[]).reduce((s2,p)=>s2+(Number(p.recebimento)||0),0), 0);
   const totalDesconto = (pedido.itens||[]).reduce((s,it)=> s + (it.parcelas||[]).reduce((s2,p)=>s2+(Number(p.desconto)||0),0), 0);
   const totalRecebido = totalRecebidoParcelas + (Number(pedido.valor_entrada)||0);
-  const quitado = (totalRecebido+totalDesconto) >= totalGeral - 0.005;
-  return { totalGeral, totalRecebido, totalDesconto, quitado };
+  // Saldo devedor e "quitado" vêm direto de cada parcela, não de uma
+  // comparação de totais — um valor de entrada grande (ou desconto) podia
+  // fechar a soma geral mesmo com parcelas de verdade ainda pendentes,
+  // fazendo o pedido aparecer como "Quitado" estando na verdade em aberto.
+  let saldoDevedor = 0, todasQuitadas = true, temParcela = false;
+  (pedido.itens||[]).forEach(it=>{
+    (it.parcelas||[]).forEach(p=>{
+      temParcela = true;
+      const rem = remanescenteParcela(it.valor_parcela, p);
+      saldoDevedor += rem;
+      if(rem > 0.005) todasQuitadas = false;
+    });
+  });
+  const quitado = temParcela && todasQuitadas;
+  return { totalGeral, totalRecebido, totalDesconto, saldoDevedor, quitado };
 }
 // Lista achatada de todas as parcelas com saldo pendente, em todos os pedidos —
 // alimenta o KPI "a receber" do painel e a tabela de contas a receber do Financeiro.
