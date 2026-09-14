@@ -458,7 +458,7 @@
                   const remanescente = remanescenteParcela(it.valor_parcela, p);
                   const pagamentos = pagamentosDaParcela(p);
                   return `<tr>
-                    <td>${pIdx===0?esc(it.descricao):''}</td>
+                    <td>${pIdx===0?esc(it.descricao)+((it.produtos_extras&&it.produtos_extras.length)?'<div style="font-size:11px; color:var(--muted); font-weight:400; margin-top:2px;">+ '+it.produtos_extras.map(p=>esc(p.descricao)).join(', ')+'</div>':''):''}</td>
                     <td>${pIdx===0?esc(it.uni):''}</td>
                     <td>${p.n}/${it.parcelas_qtd}</td>
                     <td class="num">${fmtBRL(it.valor_parcela)}</td>
@@ -494,6 +494,7 @@
       codigo_produto: it.codigo_produto, descricao: it.descricao,
       uni: it.uni||1, valor_unit: it.valor_venda||0, valor_custo: it.valor_compra||0,
       parcelas_qtd: it.parcelas_qtd||1, valor_parcela: it.valor_parcela||0,
+      produtos_extras: (it.produtos_extras||[]).map(p=>({...p})),
     }));
     if(pedidoUI.novoItens.length===0) pedidoUI.novoItens.push({ produtoLabel:'', codigo_produto:'', descricao:'', uni:1, valor_unit:0, parcelas_qtd:1, valor_parcela:0 });
     const clienteDup = S.clientes.get(pedido.codigo_cliente);
@@ -703,6 +704,7 @@
             <div class="field" style="width:110px;"><label>Total</label><div class="ef-itemtotal" data-it="${itIdx}" style="padding:8px 0; font-weight:600;">${fmtBRL(itemTotal(it))}</div></div>
             <button class="iconbtn ef-del-item" data-it="${itIdx}" title="Remover produto">${ICONS.trash}</button>
           </div>
+          ${(it.produtos_extras&&it.produtos_extras.length) ? `<div style="font-size:11.5px; color:var(--muted); margin-top:4px;">No combo desta parcela: ${it.produtos_extras.map(p=>esc(p.descricao)).join(', ')}</div>` : ''}
           <div class="table-wrap" style="margin-top:10px;">
             <table class="data">
               <thead><tr><th style="width:70px;">Parcela</th><th>Data pgto.</th><th class="num">Recebimento</th><th class="num">Saldo devedor</th></tr></thead>
@@ -897,19 +899,38 @@
     renderItensRows();
     document.getElementById('ped-add-item').onclick = ()=>{ pedidoUI.novoItens.push(blankItem()); renderItensRows(); };
 
-    function blankItem(){ return { produtoLabel:'', codigo_produto:'', descricao:'', uni:1, valor_unit:0, parcelas_qtd:1, valor_parcela:0 }; }
+    function blankItem(){ return { produtoLabel:'', codigo_produto:'', descricao:'', uni:1, valor_unit:0, parcelas_qtd:1, valor_parcela:0, produtos_extras:[] }; }
 
     function renderItensRows(){
       const body = document.getElementById('np-itens-body');
-      body.innerHTML = pedidoUI.novoItens.map((it,idx)=>`
+      body.innerHTML = pedidoUI.novoItens.map((it,idx)=>{
+        const extras = it.produtos_extras||[];
+        const linhaCombo = extras.length ? `
+        <tr class="np-combo-row">
+          <td colspan="6" style="padding-top:0; padding-bottom:12px;">
+            <div style="display:flex; flex-wrap:wrap; align-items:center; gap:6px;">
+              <span style="font-size:11.5px; color:var(--muted);">No combo desta parcela:</span>
+              ${extras.map((p,exIdx)=>`
+                <span class="badge" style="display:inline-flex; align-items:center; gap:5px;">
+                  ${esc(p.descricao)}
+                  <button type="button" class="np-combo-del" data-idx="${idx}" data-exidx="${exIdx}" title="Remover do combo" style="border:none; background:none; cursor:pointer; padding:0; line-height:1; color:inherit; font-size:14px;">&times;</button>
+                </span>`).join('')}
+            </div>
+          </td>
+        </tr>` : '';
+        return `
         <tr>
           <td style="min-width:220px;"><input list="dl-produtos" data-idx="${idx}" class="np-produto" value="${esc(it.produtoLabel)}" placeholder="Buscar produto…"></td>
           <td style="width:70px;"><input type="number" min="1" data-idx="${idx}" class="np-uni" value="${it.uni}"></td>
           <td class="num" style="width:120px;"><input type="number" step="0.01" data-idx="${idx}" class="np-unit" value="${it.valor_unit}"></td>
           <td style="width:90px;"><input type="number" min="1" data-idx="${idx}" class="np-parcelas" value="${it.parcelas_qtd}"></td>
           <td class="num" style="width:120px;"><input type="number" step="0.01" data-idx="${idx}" class="np-valorparcela" value="${it.valor_parcela}"></td>
-          <td><button class="iconbtn np-del" data-idx="${idx}" title="Remover">${ICONS.trash}</button></td>
-        </tr>`).join('');
+          <td style="white-space:nowrap;">
+            <button class="iconbtn np-combo-add" data-idx="${idx}" title="Adicionar produto nesta mesma parcela (combo)">${ICONS.plus}</button>
+            <button class="iconbtn np-del" data-idx="${idx}" title="Remover">${ICONS.trash}</button>
+          </td>
+        </tr>${linhaCombo}`;
+      }).join('');
       if(!document.getElementById('dl-produtos')){
         document.getElementById('np-itens-body').insertAdjacentHTML('afterend', `<datalist id="dl-produtos">${produtoOptionsDatalist()}</datalist>`);
       }
@@ -925,7 +946,40 @@
       body.querySelectorAll('.np-parcelas').forEach(inp=> inp.oninput = (e)=>{ pedidoUI.novoItens[+e.target.dataset.idx].parcelas_qtd = parseInt(e.target.value)||1; recalcRow(+e.target.dataset.idx); updateTotal(); });
       body.querySelectorAll('.np-valorparcela').forEach(inp=> inp.oninput = (e)=>{ pedidoUI.novoItens[+e.target.dataset.idx].valor_parcela = parseFloat(e.target.value)||0; updateTotal(); });
       body.querySelectorAll('.np-del').forEach(btn=> btn.onclick = (e)=>{ pedidoUI.novoItens.splice(+e.target.closest('button').dataset.idx,1); if(pedidoUI.novoItens.length===0) pedidoUI.novoItens.push(blankItem()); renderItensRows(); updateTotal(); });
+      body.querySelectorAll('.np-combo-add').forEach(btn=> btn.onclick = ()=> abrirAdicionarComboModal(+btn.dataset.idx));
+      body.querySelectorAll('.np-combo-del').forEach(btn=> btn.onclick = ()=>{
+        pedidoUI.novoItens[+btn.dataset.idx].produtos_extras.splice(+btn.dataset.exidx, 1);
+        renderItensRows();
+      });
       updateTotal();
+    }
+    function abrirAdicionarComboModal(idx){
+      const back = document.createElement('div');
+      back.className = 'modal-backdrop';
+      back.innerHTML = `
+        <div class="modal" style="max-width:420px;">
+          <div class="modal-head"><h3>Adicionar produto ao combo</h3><button class="iconbtn" id="cb-close" type="button">&times;</button></div>
+          <div class="modal-body">
+            <div style="font-size:12.5px; color:var(--muted); margin-bottom:12px;">Esse produto entra na mesma parcela desta linha — sem preço nem controle de estoque próprios, só para aparecer junto na ficha do pedido.</div>
+            <div class="field"><label>Produto</label><input id="cb-produto" list="dl-produtos" placeholder="Buscar produto…"></div>
+          </div>
+          <div class="modal-foot"><button class="btn" id="cb-cancel" type="button">Cancelar</button><button class="btn primary" id="cb-add" type="button">${ICONS.plus} Adicionar</button></div>
+        </div>`;
+      document.body.appendChild(back);
+      const close = ()=> back.remove();
+      back.querySelector('#cb-close').onclick = close;
+      back.querySelector('#cb-cancel').onclick = close;
+      back.onclick = (e)=>{ if(e.target===back) close(); };
+      back.querySelector('#cb-add').onclick = ()=>{
+        const label = back.querySelector('#cb-produto').value.trim();
+        const prod = label ? findProdutoByLabel(label) : null;
+        if(!prod){ toast('Selecione um produto válido da lista.', 'err'); return; }
+        const it = pedidoUI.novoItens[idx];
+        it.produtos_extras = it.produtos_extras || [];
+        it.produtos_extras.push({ codigo_produto: prod.codigo, descricao: prod.descricao });
+        close();
+        renderItensRows();
+      };
     }
     function recalcRow(idx){
       const it = pedidoUI.novoItens[idx];
@@ -953,6 +1007,7 @@
         codigo_produto: it.codigo_produto, descricao: it.descricao, uni: it.uni||1,
         valor_venda: it.valor_unit||0, valor_compra: it.valor_custo||0,
         parcelas_qtd: it.parcelas_qtd||1, valor_parcela: it.valor_parcela||0,
+        produtos_extras: it.produtos_extras || [],
         parcelas: Array.from({length: it.parcelas_qtd||1}, (_,i)=> blankParcela(i+1)),
       }));
       const saveBtn = document.getElementById('np-salvar');

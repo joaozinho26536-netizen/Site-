@@ -177,7 +177,7 @@ async function loadProdutosMap(){
 // normalizadas. `numero` fica sempre até 496 registros no topo (dentro do limite
 // de 1000 por página do PostgREST), então não precisa paginar aqui.
 const PEDIDO_SELECT = 'numero,data_compra,codigo_cliente,cliente_nome,forma_pagamento,condicao_pgto,proximo_pagamento_override,valor_entrada,'+
-  'itens:pedido_itens(id,codigo_produto,descricao,uni,valor_venda,valor_compra,parcelas_qtd,valor_parcela,'+
+  'itens:pedido_itens(id,codigo_produto,descricao,uni,valor_venda,valor_compra,parcelas_qtd,valor_parcela,produtos_extras,'+
   'parcelas(id,n,data_pgto,recebimento,desconto,recibo,pagamentos(id,data,valor)))';
 async function loadPedidos(){
   const { data, error } = await sb.from('pedidos').select(PEDIDO_SELECT).order('numero', { ascending:false });
@@ -317,6 +317,7 @@ async function salvarItensPedido(numero, itens){
     pedido_numero: numero, codigo_produto: it.codigo_produto || null, descricao: it.descricao || '',
     uni: it.uni||1, valor_venda: it.valor_venda||0, valor_compra: it.valor_compra||0,
     parcelas_qtd: it.parcelas_qtd||1, valor_parcela: it.valor_parcela||0,
+    produtos_extras: it.produtos_extras || [],
   }));
   const { data: itemRows, error: e1 } = await sb.from('pedido_itens').insert(itensInput).select('id');
   if(e1) throw e1;
