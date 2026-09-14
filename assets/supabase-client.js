@@ -144,7 +144,7 @@ async function loadProdutosMap(){
 // (pedido.itens[].parcelas[].pagamentos[]), só que remontada a partir de 4 tabelas
 // normalizadas. `numero` fica sempre até 496 registros no topo (dentro do limite
 // de 1000 por página do PostgREST), então não precisa paginar aqui.
-const PEDIDO_SELECT = 'numero,data_compra,codigo_cliente,cliente_nome,forma_pagamento,condicao_pgto,proximo_pagamento_override,'+
+const PEDIDO_SELECT = 'numero,data_compra,codigo_cliente,cliente_nome,forma_pagamento,condicao_pgto,proximo_pagamento_override,valor_entrada,'+
   'itens:pedido_itens(id,codigo_produto,descricao,uni,valor_venda,valor_compra,parcelas_qtd,valor_parcela,'+
   'parcelas(id,n,data_pgto,recebimento,desconto,recibo,pagamentos(id,data,valor)))';
 async function loadPedidos(){
@@ -220,8 +220,9 @@ function remanescenteParcela(valorParcela, p){
 }
 function pedidoTotais(pedido){
   const totalGeral = (pedido.itens||[]).reduce((s,it)=> s + (Number(it.valor_venda)||0)*(Number(it.uni)||1), 0);
-  const totalRecebido = (pedido.itens||[]).reduce((s,it)=> s + (it.parcelas||[]).reduce((s2,p)=>s2+(Number(p.recebimento)||0),0), 0);
+  const totalRecebidoParcelas = (pedido.itens||[]).reduce((s,it)=> s + (it.parcelas||[]).reduce((s2,p)=>s2+(Number(p.recebimento)||0),0), 0);
   const totalDesconto = (pedido.itens||[]).reduce((s,it)=> s + (it.parcelas||[]).reduce((s2,p)=>s2+(Number(p.desconto)||0),0), 0);
+  const totalRecebido = totalRecebidoParcelas + (Number(pedido.valor_entrada)||0);
   const quitado = (totalRecebido+totalDesconto) >= totalGeral - 0.005;
   return { totalGeral, totalRecebido, totalDesconto, quitado };
 }
@@ -311,6 +312,7 @@ async function salvarPedidoCompleto(numeroAntigo, draft){
     numero: draft.numero, data_compra: draft.data_compra, codigo_cliente: draft.codigo_cliente || null,
     cliente_nome: draft.cliente_nome || null, forma_pagamento: draft.forma_pagamento || null,
     condicao_pgto: draft.condicao_pgto || 1, proximo_pagamento_override: draft.proximo_pagamento_override || null,
+    valor_entrada: Number(draft.valor_entrada)||0,
   };
   if(numeroMudou){
     const { error: eIns } = await sb.from('pedidos').insert(header);

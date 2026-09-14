@@ -423,6 +423,7 @@
   function renderFichaHTML(pedido){
     const cliente = S.clientes.get(pedido.codigo_cliente);
     const { totalGeral, totalRecebido, totalDesconto, quitado } = RO.pedidoTotais(pedido);
+    const valorEntrada = Number(pedido.valor_entrada)||0;
     return `
       <div class="ficha">
         <div class="ficha-top">
@@ -442,6 +443,7 @@
           <dt>Endereço</dt><dd>${cliente? esc([cliente.rua,cliente.numero,cliente.bairro,cliente.cidade,cliente.estado].filter(Boolean).join(', ')) : '—'}</dd>
           <dt>CPF</dt><dd>${cliente? esc(cliente.cpf_cnpj)||'—' : '—'}</dd>
           <dt>Forma de pagamento</dt><dd>${esc(pedido.forma_pagamento)} &middot; ${esc(CONDICOES[(pedido.condicao_pgto||1)-1]||'')}</dd>
+          ${valorEntrada>0 ? `<dt>Entrada</dt><dd>${fmtBRL(valorEntrada)}</dd>` : ''}
           <dt>Próximo pagamento</dt><dd>${(()=>{ const prox = proximoPagamentoPedido(pedido); return prox ? fmtDate(prox) : '—'; })()}</dd>
         </dl>
         <div class="table-wrap" style="margin-top:16px;">
@@ -475,7 +477,7 @@
           </table>
         </div>
         <div style="text-align:right; margin-top:12px; font-size:13.5px;">
-          Total do pedido: <strong>${fmtBRL(totalGeral)}</strong> &middot; Recebido: <strong>${fmtBRL(totalRecebido)}</strong>${totalDesconto>0?` &middot; Desconto: <strong>${fmtBRL(totalDesconto)}</strong>`:''} &middot; Saldo: <strong>${fmtBRL(Math.max(totalGeral-totalRecebido-totalDesconto,0))}</strong>
+          Total do pedido: <strong>${fmtBRL(totalGeral)}</strong>${valorEntrada>0?` &middot; Entrada: <strong>${fmtBRL(valorEntrada)}</strong>`:''} &middot; Recebido: <strong>${fmtBRL(totalRecebido)}</strong>${totalDesconto>0?` &middot; Desconto: <strong>${fmtBRL(totalDesconto)}</strong>`:''} &middot; Saldo: <strong>${fmtBRL(Math.max(totalGeral-totalRecebido-totalDesconto,0))}</strong>
         </div>
       </div>
     `;
@@ -620,6 +622,7 @@
               <button type="button" class="btn" id="ef-proximo-btn" style="width:100%; justify-content:flex-start;"></button>
               <div class="hint" id="ef-proximo-hint"></div>
             </div>
+            <div class="field"><label>Valor de entrada</label><input id="ef-entrada" inputmode="decimal" value="${fmtNumBR(draft.valor_entrada||0)}"><div class="hint">Pago à vista na compra, separado das parcelas.</div></div>
           </div>
           <div id="ef-itens"></div>
           <button class="btn" id="ef-add-item" style="margin-top:6px;">${ICONS.plus} Adicionar produto</button>
@@ -635,10 +638,15 @@
     function itemTotal(it){ return (it.valor_parcela||0) * (it.parcelas_qtd||0); }
     function renderResumo(){
       const totalGeral = draft.itens.reduce((s,it)=> s + itemTotal(it), 0);
-      const totalRecebido = draft.itens.reduce((s,it)=> s + (it.parcelas||[]).reduce((s2,p)=> s2+(Number(p.recebimento)||0), 0), 0);
+      const totalRecebidoParcelas = draft.itens.reduce((s,it)=> s + (it.parcelas||[]).reduce((s2,p)=> s2+(Number(p.recebimento)||0), 0), 0);
       const totalDesconto = draft.itens.reduce((s,it)=> s + (it.parcelas||[]).reduce((s2,p)=> s2+(Number(p.desconto)||0), 0), 0);
-      back.querySelector('#ef-resumo').innerHTML = `Total: <strong>${fmtBRL(totalGeral)}</strong> &middot; Recebido: <strong>${fmtBRL(totalRecebido)}</strong>${totalDesconto>0?` &middot; Desconto: <strong>${fmtBRL(totalDesconto)}</strong>`:''} &middot; Saldo: <strong>${fmtBRL(Math.max(totalGeral-totalRecebido-totalDesconto,0))}</strong>`;
+      const totalEntrada = Number(draft.valor_entrada)||0;
+      const totalRecebido = totalRecebidoParcelas + totalEntrada;
+      back.querySelector('#ef-resumo').innerHTML = `Total: <strong>${fmtBRL(totalGeral)}</strong>${totalEntrada>0?` &middot; Entrada: <strong>${fmtBRL(totalEntrada)}</strong>`:''} &middot; Recebido: <strong>${fmtBRL(totalRecebido)}</strong>${totalDesconto>0?` &middot; Desconto: <strong>${fmtBRL(totalDesconto)}</strong>`:''} &middot; Saldo: <strong>${fmtBRL(Math.max(totalGeral-totalRecebido-totalDesconto,0))}</strong>`;
     }
+    const entradaInp = back.querySelector('#ef-entrada');
+    maskMoneyInput(entradaInp);
+    entradaInp.addEventListener('input', ()=>{ draft.valor_entrada = parseNumBR(entradaInp.value); renderResumo(); });
     function atualizarProximoBtn(){
       const btn = back.querySelector('#ef-proximo-btn');
       const hint = back.querySelector('#ef-proximo-hint');
@@ -672,6 +680,8 @@
     function recomputeSaldos(itIdx){
       const it = draft.itens[itIdx];
       const total = itemTotal(it);
+      const totalEl = back.querySelector(`.ef-itemtotal[data-it="${itIdx}"]`);
+      if(totalEl) totalEl.textContent = fmtBRL(total);
       let saldo = total;
       (it.parcelas||[]).forEach((p,pIdx)=>{
         saldo -= (Number(p.recebimento)||0) + (Number(p.desconto)||0);
@@ -689,6 +699,7 @@
             <div class="field" style="width:70px;"><label>Uni.</label><input type="number" min="1" class="ef-uni" data-it="${itIdx}" value="${it.uni||1}"></div>
             <div class="field" style="width:130px;"><label>Valor/parcela</label><input class="ef-valorparcela" data-it="${itIdx}" inputmode="decimal" value="${fmtNumBR(it.valor_parcela)}"></div>
             <div class="field" style="width:90px;"><label>Parcelas</label><input type="number" min="1" class="ef-parcelasqtd" data-it="${itIdx}" value="${it.parcelas_qtd||1}"></div>
+            <div class="field" style="width:110px;"><label>Total</label><div class="ef-itemtotal" data-it="${itIdx}" style="padding:8px 0; font-weight:600;">${fmtBRL(itemTotal(it))}</div></div>
             <button class="iconbtn ef-del-item" data-it="${itIdx}" title="Remover produto">${ICONS.trash}</button>
           </div>
           <div class="table-wrap" style="margin-top:10px;">
@@ -863,6 +874,7 @@
             <div class="field"><label>Condição de pagamento</label>
               <select id="np-condicao">${CONDICOES.map((c,i)=>`<option value="${i+1}" ${pedidoUI.prefillCondicao===(i+1)?'selected':''}>${c}</option>`).join('')}</select>
             </div>
+            <div class="field"><label>Valor de entrada (opcional)</label><input id="np-entrada" inputmode="decimal" value="0,00"><div class="hint">Pago à vista na compra, separado das parcelas.</div></div>
           </div>
           <div class="table-wrap">
             <table class="data">
@@ -878,6 +890,7 @@
       </div>
     `;
     pedidoUI.prefillCliente = null; pedidoUI.prefillForma = null; pedidoUI.prefillCondicao = null;
+    maskMoneyInput(document.getElementById('np-entrada'));
 
     if(pedidoUI.novoItens.length===0) pedidoUI.novoItens.push(blankItem());
     renderItensRows();
@@ -949,6 +962,7 @@
           codigo_cliente: cliente.codigo, cliente_nome: cliente.nome,
           forma_pagamento: document.getElementById('np-forma').value,
           condicao_pgto: parseInt(document.getElementById('np-condicao').value,10),
+          valor_entrada: parseNumBR(document.getElementById('np-entrada').value),
         });
         if(error) throw error;
         await RO.salvarItensPedido(numero, itens);
