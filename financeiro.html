@@ -122,14 +122,31 @@
     const lucroAtual = mesAtual.vendas - mesAtual.custo;
     const ticketMedio = mesAtual.pedidos ? mesAtual.vendas/mesAtual.pedidos : 0;
 
+    // Comparativo com o mesmo mês do ano anterior (só aparece quando há
+    // dados daquele mês — pedidos lançados há mais de 12 meses).
+    const ymAnoAnterior = (now.getFullYear()-1)+'-'+String(now.getMonth()+1).padStart(2,'0');
+    const mesAnoAnterior = meses.get(ymAnoAnterior);
+    const labelAnoAnterior = new Date(ymAnoAnterior+'-02').toLocaleDateString('pt-BR',{month:'short',year:'numeric'});
+    function variacaoHTML(atual, anteriorValor, subirEhRuim){
+      if(!mesAnoAnterior) return '';
+      if(!anteriorValor) return atual>0 ? ` &middot; <span style="color:${subirEhRuim?'var(--danger)':'var(--success)'};">novo vs ${labelAnoAnterior}</span>` : '';
+      const pct = ((atual-anteriorValor)/anteriorValor)*100;
+      const subiu = pct>=0;
+      const bom = subirEhRuim ? !subiu : subiu;
+      const cor = bom ? 'var(--success)' : 'var(--danger)';
+      const seta = subiu ? '&#9650;' : '&#9660;';
+      return ` &middot; <span style="color:${cor}; font-weight:600;">${seta} ${Math.abs(pct).toFixed(0)}%</span> vs ${labelAnoAnterior}`;
+    }
+    const lucroAnoAnterior = mesAnoAnterior ? mesAnoAnterior.vendas-mesAnoAnterior.custo : 0;
+
     const tClientes = topClientes(5);
     const tProdutos = topProdutos(5);
 
     el.innerHTML = `
       <div class="kpi-row">
-        <div class="kpi kpi-hero"><div class="label">Lucro do mês</div><div class="value">${fmtBRL(lucroAtual)}</div><div class="sub">${now.toLocaleDateString('pt-BR',{month:'long',year:'numeric'})} &middot; vendas &minus; custo</div></div>
-        <div class="kpi"><div class="label">Vendas do mês</div><div class="value">${fmtBRL(mesAtual.vendas)}</div><div class="sub">valor de venda dos pedidos</div></div>
-        <div class="kpi"><div class="label">Custo do mês</div><div class="value">${fmtBRL(mesAtual.custo)}</div><div class="sub">custo dos itens vendidos</div></div>
+        <div class="kpi kpi-hero"><div class="label">Lucro do mês</div><div class="value">${fmtBRL(lucroAtual)}</div><div class="sub">${now.toLocaleDateString('pt-BR',{month:'long',year:'numeric'})} &middot; vendas &minus; custo${variacaoHTML(lucroAtual, lucroAnoAnterior)}</div></div>
+        <div class="kpi"><div class="label">Vendas do mês</div><div class="value">${fmtBRL(mesAtual.vendas)}</div><div class="sub">valor de venda dos pedidos${variacaoHTML(mesAtual.vendas, mesAnoAnterior?mesAnoAnterior.vendas:0)}</div></div>
+        <div class="kpi"><div class="label">Custo do mês</div><div class="value">${fmtBRL(mesAtual.custo)}</div><div class="sub">custo dos itens vendidos${variacaoHTML(mesAtual.custo, mesAnoAnterior?mesAnoAnterior.custo:0, true)}</div></div>
       </div>
       <div class="kpi-row" style="margin-top:14px;">
         <div class="kpi"><div class="label">A receber</div><div class="value">${fmtBRL(receberTotalValor)}</div><div class="sub">parcelas em aberto</div></div>
