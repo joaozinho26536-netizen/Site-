@@ -150,6 +150,18 @@ function thSort(label, key, ui, numericKeys, extraClass){
     : (dir==='asc' ? 'Ordenado A-Z — clique para Z-A' : dir==='desc' ? 'Ordenado Z-A — clique para A-Z' : 'Ordenar (A-Z/Z-A)');
   return `<th class="sortable${extraClass?(' '+extraClass):''}${active?' active':''}" data-sortkey="${esc(key)}" title="${esc(title)}">${esc(label)}${icon}</th>`;
 }
+// Atraso pra não disparar uma consulta ao servidor a cada tecla digitada num
+// campo de busca — só busca de fato quando a pessoa para de digitar por
+// `ms`. Cada chamador guarda seu próprio timer (debounce(fn) devolve uma
+// função nova; usar a mesma referência em todo input que deve compartilhar
+// o debounce).
+function debounce(fn, ms){
+  let timer = null;
+  return function(...args){
+    clearTimeout(timer);
+    timer = setTimeout(()=> fn.apply(this, args), ms||300);
+  };
+}
 function wireSortHeaders(container, ui, numericKeys, rerenderFn){
   container.querySelectorAll('th.sortable').forEach(th=>{
     th.onclick = ()=>{
@@ -162,13 +174,13 @@ function wireSortHeaders(container, ui, numericKeys, rerenderFn){
     };
   });
 }
-function rerenderKeepingFocus(renderFn){
+async function rerenderKeepingFocus(renderFn){
   const active = document.activeElement;
   const id = active && active.id;
   const hasSelection = active && typeof active.selectionStart === 'number';
   const selStart = hasSelection ? active.selectionStart : null;
   const selEnd = hasSelection ? active.selectionEnd : null;
-  renderFn();
+  await renderFn(); // renderFn pode ser síncrono ou assíncrono — await funciona nos dois casos
   if(id){
     const restored = document.getElementById(id);
     if(restored){
@@ -208,6 +220,48 @@ async function loadProdutosMap(){
   (await loadProdutos()).forEach(p=> map.set(p.codigo, p));
   return map;
 }
+
+/* ---------------- consulta paginada no servidor (telas de listagem) ----------------
+   Ao contrário de loadClientes/loadProdutos (que trazem a tabela inteira pra
+   memória), estas duas famílias de função dividem o trabalho em duas partes:
+   - queryXPage(): só a página atual, com todas as colunas — o que a tabela
+     realmente exibe. Refeita a cada busca/ordenação/página.
+   - loadXIndice(): TODAS as linhas, mas só 2-3 colunas estreitas — o mínimo
+     necessário pras checagens que precisam ver a base inteira (duplicidade de
+     CPF, próximo código sequencial, alerta de estoque baixo). Bem mais leve
+     que trazer a tabela inteira com todas as colunas, e evita perder essas
+     checagens só porque a tela não carrega mais tudo de uma vez. */
+// .or() do PostgREST usa vírgula pra separar condições e parênteses pra
+// agrupar — sem isso, um nome de cliente digitado com vírgula (ex.: "Silva,
+// João") quebraria o filtro (ou, em teoria, deixaria a pessoa acrescentar
+// outra condição ao OR digitando algo como "x,coluna.eq.valor" na busca).
+// Os campos que vão só em .ilike() isolado (fora do .or()) não precisam
+// disso — o valor ali é um parâmetro, não texto costurado numa expressão.
+function paraFiltroOr(s){ return String(s).replace(/[,()]/g, ''); }
+
+async function queryClientesPage({ fCodigo, fNome, fCpf, sortKey, sortDir, page, pageSize }){
+  let q = sb.from('clientes').select('*', { count:'exact' });
+  if(fCodigo){ const s = paraFiltroOr(fCodigo); q = q.or(`codigo.ilike.%${s}%,pasta.ilike.%${s}%`); }
+  if(fNome) q = q.ilike('nome', `%${fNome}%`);
+  if(fCpf) q = q.ilike('cpf_cnpj', `%${fCpf}%`);
+  q = q.order(sortKey||'nome', { ascending: sortDir!=='desc' });
+  const from = (page-1)*pageSize, to = from+pageSize-1;
+  const { data, error, count } = await q.range(from, to);
+  if(error) throw error;
+  return { rows: data, total: count||0 };
+}
+async function loadClientesIndice(){ return loadAllRows('clientes', 'codigo,nome,cpf_cnpj', 'codigo'); }
+
+async function queryProdutosPage({ search, sortKey, sortDir, page, pageSize }){
+  let q = sb.from('produtos').select('*', { count:'exact' });
+  if(search){ const s = paraFiltroOr(search); q = q.or(`descricao.ilike.%${s}%,codigo.ilike.%${s}%,ncm.ilike.%${s}%`); }
+  q = q.order(sortKey||'descricao', { ascending: sortDir!=='desc' });
+  const from = (page-1)*pageSize, to = from+pageSize-1;
+  const { data, error, count } = await q.range(from, to);
+  if(error) throw error;
+  return { rows: data, total: count||0 };
+}
+async function loadProdutosIndice(){ return loadAllRows('produtos', 'codigo,descricao,ncm,estoque,estoque_min', 'codigo'); }
 // Pedidos com itens/parcelas/pagamentos aninhados via embedding do PostgREST — a
 // mesma forma de documento aninhado que o Artifact antigo guardava no Firestore
 // (pedido.itens[].parcelas[].pagamentos[]), só que remontada a partir de 4 tabelas
@@ -472,10 +526,11 @@ async function requireAdmin(){
 window.RO = {
   sb, fmtBRL, fmtDate, todayISO, esc, onlyDigits, normName, fmtNumBR, parseNumBR, maskMoneyInput,
   toast, confirmar, skeletonKpiRow, skeletonTable, csvEscape, toCSV, baixarArquivo,
-  sortRows, thSort, wireSortHeaders, rerenderKeepingFocus, requireAuth, logout,
+  sortRows, thSort, wireSortHeaders, debounce, rerenderKeepingFocus, requireAuth, logout,
   getMeuPerfil, requireAdmin,
   loadAllRows, loadClientes, loadClientesMap, loadProdutos, loadProdutosMap,
   loadPedidos, loadPedidosMap, loadPedidoByNumero,
+  queryClientesPage, loadClientesIndice, queryProdutosPage, loadProdutosIndice,
   nextCodigo, nextPedidoNumero, estoqueControlado, estoqueBaixo,
   parcelaVencimentoEstimado, proximoPagamentoPedido, pagamentosDaParcela, remanescenteParcela,
   pedidoTotais, listaContasAReceber,
