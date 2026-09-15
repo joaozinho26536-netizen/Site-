@@ -29,7 +29,7 @@
   function sortGetter(p, key){ return key==='lucro' ? (Number(p.valor_venda)||0)-(Number(p.valor_compra)||0) : p[key]; }
 
   const el = document.getElementById('content');
-  el.innerHTML = '<div class="empty"><div class="spinner" style="margin:0 auto 10px;"></div>Carregando produtos…</div>';
+  el.innerHTML = RO.skeletonTable(8);
   try{
     (await RO.loadProdutos()).forEach(p=> S.produtos.set(p.codigo, p));
     S.loaded = true;

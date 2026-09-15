@@ -17,7 +17,7 @@
   RO_NAV.setTitle('Início', 'Visão geral do sistema', '');
 
   const el = document.getElementById('content');
-  el.innerHTML = '<div class="empty"><div class="spinner" style="margin:0 auto 10px;"></div>Carregando…</div>';
+  el.innerHTML = RO.skeletonKpiRow(3, true) + RO.skeletonKpiRow(4) + RO.skeletonKpiRow(4);
 
   let clientes, produtos, pedidos;
   try{

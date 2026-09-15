@@ -74,6 +74,21 @@ function confirmar(mensagem, opts){
   });
 }
 
+/* ---------------- skeleton loaders (lugar do spinner genérico enquanto os
+   dados do Supabase ainda não chegaram) ---------------- */
+function skeletonKpiRow(n, heroFirst){
+  n = n || 4;
+  const cells = Array.from({length:n}, (_,i)=>
+    '<div class="skeleton skeleton-kpi'+(heroFirst && i===0 ? ' skeleton-hero' : '')+'"></div>'
+  ).join('');
+  return '<div class="skeleton-kpi-row">'+cells+'</div>';
+}
+function skeletonTable(rows){
+  rows = rows || 6;
+  const linhas = Array.from({length:rows}, ()=> '<div class="skeleton skeleton-row"></div>').join('');
+  return '<div class="skeleton-table">'+linhas+'</div>';
+}
+
 /* ---------------- toasts ---------------- */
 function toast(msg, kind){
   let wrap = document.getElementById('toasts');
@@ -434,7 +449,7 @@ async function requireAdmin(){
 
 window.RO = {
   sb, fmtBRL, fmtDate, todayISO, esc, onlyDigits, normName, fmtNumBR, parseNumBR, maskMoneyInput,
-  toast, confirmar, sortRows, thSort, wireSortHeaders, rerenderKeepingFocus, requireAuth, logout,
+  toast, confirmar, skeletonKpiRow, skeletonTable, sortRows, thSort, wireSortHeaders, rerenderKeepingFocus, requireAuth, logout,
   getMeuPerfil, requireAdmin,
   loadAllRows, loadClientes, loadClientesMap, loadProdutos, loadProdutosMap,
   loadPedidos, loadPedidosMap, loadPedidoByNumero,
