@@ -23,6 +23,7 @@ const ICONS = {
   shield:'<svg viewBox="0 0 20 20" fill="currentColor"><path d="M10 1.4 17.6 4v5.6c0 4.9-3.2 8.7-7.6 9-4.4-.3-7.6-4.1-7.6-9V4L10 1.4Z" opacity=".18"/><path fill-rule="evenodd" clip-rule="evenodd" d="M10 1.4 17.6 4v5.6c0 4.9-3.2 8.7-7.6 9-4.4-.3-7.6-4.1-7.6-9V4L10 1.4Zm0 2.1L4.4 5.4v4.2c0 3.9 2.4 6.8 5.6 7.1 3.2-.3 5.6-3.2 5.6-7.1V5.4L10 3.5Z"/><path d="M9 13.4 5.9 10.3l1.4-1.4L9 10.6l3.7-3.7 1.4 1.4L9 13.4Z"/></svg>',
   sun:'<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="10" cy="10" r="3.4" fill="currentColor" stroke="none"/><path d="M10 0.8v2.6M10 16.6v2.6M19.2 10h-2.6M3.4 10H0.8M16.2 3.8l-1.8 1.8M5.6 14.4l-1.8 1.8M16.2 16.2l-1.8-1.8M5.6 5.6 3.8 3.8"/></svg>',
   moon:'<svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M17.6 12.4A7.7 7.7 0 1 1 7.6 2.4a8.4 8.4 0 0 0 10 10Z"/></svg>',
+  print:'<svg viewBox="0 0 20 20" fill="currentColor"><path d="M5.4 1.4h9.2v4.4H5.4V1.4Z"/><path fill-rule="evenodd" clip-rule="evenodd" d="M2.4 6.6h15.2a1.6 1.6 0 0 1 1.6 1.6v6.2a1.6 1.6 0 0 1-1.6 1.6h-2.6v2.6H5.4v-2.6H2.4a1.6 1.6 0 0 1-1.6-1.6V8.2a1.6 1.6 0 0 1 1.6-1.6Zm4.2 5.6h6.8v4.6H6.6v-4.6Z"/></svg>',
 };
 
 /* ---------------- tema claro/escuro ---------------- */
