@@ -21,7 +21,41 @@ const ICONS = {
   upload:'<svg viewBox="0 0 20 20" fill="currentColor"><path d="M10 2.6 4.8 8.4h3.1V14h4.2V8.4h3.1L10 2.6Z"/><path d="M2.8 16h14.4v1.6H2.8V16Z"/></svg>',
   external:'<svg viewBox="0 0 20 20" fill="currentColor"><path d="M8 3H3v14h14v-5h-2v3H5V5h3V3Z"/><path d="M11 3h6v6h-2V6.4l-7.3 7.3-1.4-1.4L13.6 5H11V3Z"/></svg>',
   shield:'<svg viewBox="0 0 20 20" fill="currentColor"><path d="M10 1.4 17.6 4v5.6c0 4.9-3.2 8.7-7.6 9-4.4-.3-7.6-4.1-7.6-9V4L10 1.4Z" opacity=".18"/><path fill-rule="evenodd" clip-rule="evenodd" d="M10 1.4 17.6 4v5.6c0 4.9-3.2 8.7-7.6 9-4.4-.3-7.6-4.1-7.6-9V4L10 1.4Zm0 2.1L4.4 5.4v4.2c0 3.9 2.4 6.8 5.6 7.1 3.2-.3 5.6-3.2 5.6-7.1V5.4L10 3.5Z"/><path d="M9 13.4 5.9 10.3l1.4-1.4L9 10.6l3.7-3.7 1.4 1.4L9 13.4Z"/></svg>',
+  sun:'<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="10" cy="10" r="3.4" fill="currentColor" stroke="none"/><path d="M10 0.8v2.6M10 16.6v2.6M19.2 10h-2.6M3.4 10H0.8M16.2 3.8l-1.8 1.8M5.6 14.4l-1.8 1.8M16.2 16.2l-1.8-1.8M5.6 5.6 3.8 3.8"/></svg>',
+  moon:'<svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M17.6 12.4A7.7 7.7 0 1 1 7.6 2.4a8.4 8.4 0 0 0 10 10Z"/></svg>',
 };
+
+/* ---------------- tema claro/escuro ---------------- */
+// Aplica o tema o mais cedo possível (ainda no carregamento do script, antes
+// da casca da página ser montada) pra não piscar o tema errado. Sem
+// preferência salva, segue prefers-color-scheme do sistema (a regra CSS
+// correspondente já cobre isso sozinha, mas fixar o atributo aqui deixa um
+// único jeito de saber "qual tema está ativo" pro botão de alternância).
+function temaEfetivo(){
+  try{
+    const salvo = localStorage.getItem('ro-theme');
+    if(salvo==='dark' || salvo==='light') return salvo;
+  }catch(e){}
+  return (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+}
+function aplicarTema(tema){
+  document.documentElement.setAttribute('data-theme', tema);
+}
+function alternarTema(){
+  const novo = temaEfetivo()==='dark' ? 'light' : 'dark';
+  try{ localStorage.setItem('ro-theme', novo); }catch(e){}
+  aplicarTema(novo);
+  atualizarBotaoTema();
+}
+function atualizarBotaoTema(){
+  const btn = document.getElementById('theme-toggle');
+  if(!btn) return;
+  const escuro = temaEfetivo()==='dark';
+  btn.innerHTML = escuro ? ICONS.sun : ICONS.moon;
+  btn.setAttribute('aria-label', escuro ? 'Mudar para tema claro' : 'Mudar para tema escuro');
+  btn.setAttribute('title', escuro ? 'Mudar para tema claro' : 'Mudar para tema escuro');
+}
+aplicarTema(temaEfetivo());
 
 // adminOnly: só aparece para quem tem perfil.role === 'admin_chefe' — o
 // Editor só enxerga Início, Clientes, Produtos e Vendas.
@@ -80,7 +114,11 @@ function mount(active, perfil){
             </div>
             <button type="button" class="iconbtn navburger" id="navburger" aria-label="Abrir menu" aria-expanded="false"><svg viewBox="0 0 20 20" fill="currentColor"><rect x="1.6" y="3.8" width="16.8" height="2.3" rx="1.15"/><rect x="1.6" y="8.85" width="16.8" height="2.3" rx="1.15"/><rect x="1.6" y="13.9" width="16.8" height="2.3" rx="1.15"/></svg></button>
             <nav class="mainnav" id="mainnav"></nav>
-            <div class="topnav-foot"><span></span><button id="nav-logout" type="button">Sair</button></div>
+            <div class="topnav-foot">
+              <span></span>
+              <button type="button" class="iconbtn" id="theme-toggle"></button>
+              <button id="nav-logout" type="button">Sair</button>
+            </div>
           </div>
         </header>
         <div id="main">
@@ -106,8 +144,11 @@ function mount(active, perfil){
     if(mainnav) mainnav.addEventListener('click', (e)=>{ if(e.target.closest('a')) closeNavMenu(); });
     const logoutBtn = document.getElementById('nav-logout');
     if(logoutBtn) logoutBtn.onclick = ()=> window.RO.logout();
+    const themeBtn = document.getElementById('theme-toggle');
+    if(themeBtn) themeBtn.onclick = alternarTema;
     initRouter();
   }
+  atualizarBotaoTema();
   document.getElementById('mainnav').innerHTML = renderNavHTML(active, isAdmin);
   const footSpan = document.querySelector('#shell .topnav-foot span');
   if(footSpan) footSpan.innerHTML = papelLabel;
