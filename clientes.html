@@ -65,7 +65,7 @@
     const start = (ui.page-1)*ui.pageSize;
     const pageItems = list.slice(start, start+ui.pageSize);
 
-    const headerCells = ['<th class="chk-col"><input type="checkbox" id="cli-check-all"></th>', RO.thSort('Cód.','codigo',ui,NUMERIC_KEYS), RO.thSort('Nome','nome',ui,NUMERIC_KEYS)];
+    const headerCells = ['<th class="chk-col"><input type="checkbox" id="cli-check-all" aria-label="Selecionar todos"></th>', RO.thSort('Cód.','codigo',ui,NUMERIC_KEYS), RO.thSort('Nome','nome',ui,NUMERIC_KEYS)];
     if(ui.cols.cpf) headerCells.push(RO.thSort('CPF/CNPJ','cpf_cnpj',ui,NUMERIC_KEYS));
     if(ui.cols.cidade) headerCells.push(RO.thSort('Cidade/UF','cidade',ui,NUMERIC_KEYS));
     if(ui.cols.telefone) headerCells.push(RO.thSort('Telefone','telefone',ui,NUMERIC_KEYS));
@@ -112,7 +112,7 @@
             <tbody>
               ${pageItems.length ? pageItems.map(c=>`
                 <tr>
-                  <td class="chk-col"><input type="checkbox" class="cli-check" value="${esc(c.codigo)}" ${ui.selected.has(c.codigo)?'checked':''}></td>
+                  <td class="chk-col"><input type="checkbox" class="cli-check" value="${esc(c.codigo)}" ${ui.selected.has(c.codigo)?'checked':''} aria-label="Selecionar ${esc(c.nome||'cliente')}"></td>
                   <td>${esc(c.codigo)}${c.pasta?`<br><span style="color:var(--muted); font-size:11px;">${esc(c.pasta)}</span>`:''}</td>
                   <td>${esc(c.nome)}</td>
                   ${ui.cols.cpf?`<td>${esc(c.cpf_cnpj)||'—'}</td>`:''}
@@ -120,8 +120,8 @@
                   ${ui.cols.telefone?`<td>${esc(c.telefone)||'—'}</td>`:''}
                   ${ui.cols.cadastro?`<td>${fmtDate(c.data_cadastro)}</td>`:''}
                   <td><div class="rowactions">
-                    <button class="iconbtn" data-edit="${esc(c.codigo)}" title="Editar">${ICONS.edit}</button>
-                    <button class="iconbtn" data-del="${esc(c.codigo)}" title="Excluir">${ICONS.trash}</button>
+                    <button class="iconbtn" data-edit="${esc(c.codigo)}" title="Editar" aria-label="Editar cliente">${ICONS.edit}</button>
+                    <button class="iconbtn" data-del="${esc(c.codigo)}" title="Excluir" aria-label="Excluir cliente">${ICONS.trash}</button>
                   </div></td>
                 </tr>`).join('') : `<tr><td colspan="${headerCells.length}"><div class="empty">${ICONS.users}<div>Nenhum cliente encontrado.</div></div></td></tr>`}
             </tbody>
@@ -221,7 +221,7 @@
     back.className = 'modal-backdrop';
     back.innerHTML = `
       <div class="modal">
-        <div class="modal-head"><h3>${isEdit?'Editar cliente':'Novo cliente'}</h3><button class="iconbtn" id="cm-close">&times;</button></div>
+        <div class="modal-head"><h3>${isEdit?'Editar cliente':'Novo cliente'}</h3><button class="iconbtn" id="cm-close" aria-label="Fechar">&times;</button></div>
         <div class="modal-body">
           <div id="cm-error"></div>
           <div class="field-grid">

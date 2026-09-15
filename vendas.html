@@ -145,7 +145,7 @@
     const state = { ano: dataAtual ? dataAtual.getFullYear() : hoje.getFullYear(), mes: dataAtual ? dataAtual.getMonth()+1 : null };
     const back = document.createElement('div');
     back.className = 'modal-backdrop';
-    back.innerHTML = `<div class="modal" style="max-width:420px;"><div class="modal-head"><h3>Selecionar data</h3><button class="iconbtn" id="sd-close">&times;</button></div><div class="modal-body" id="sd-body"></div></div>`;
+    back.innerHTML = `<div class="modal" style="max-width:420px;"><div class="modal-head"><h3>Selecionar data</h3><button class="iconbtn" id="sd-close" aria-label="Fechar">&times;</button></div><div class="modal-body" id="sd-body"></div></div>`;
     document.body.appendChild(back);
     const close = ()=> back.remove();
     back.querySelector('#sd-close').onclick = close;
@@ -155,9 +155,9 @@
       body.innerHTML = `
         <div class="so-title" style="margin-bottom:8px;">Ano</div>
         <div style="display:flex; align-items:center; gap:10px; margin-bottom:16px;">
-          <button class="iconbtn" id="sd-ano-prev">${ICONS.back}</button>
+          <button class="iconbtn" id="sd-ano-prev" title="Ano anterior" aria-label="Ano anterior">${ICONS.back}</button>
           <strong style="min-width:52px; text-align:center; font-size:15px;">${state.ano}</strong>
-          <button class="iconbtn" id="sd-ano-next" style="transform:scaleX(-1);">${ICONS.back}</button>
+          <button class="iconbtn" id="sd-ano-next" style="transform:scaleX(-1);" title="Próximo ano" aria-label="Próximo ano">${ICONS.back}</button>
         </div>
         <div class="so-title" style="margin-bottom:8px;">Mês</div>
         <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px;">
@@ -191,7 +191,7 @@
     back.className = 'modal-backdrop';
     back.innerHTML = `
       <div class="modal" style="max-width:420px;">
-        <div class="modal-head"><h3>Novo pagamento nesta parcela</h3><button class="iconbtn" id="npp-close">&times;</button></div>
+        <div class="modal-head"><h3>Novo pagamento nesta parcela</h3><button class="iconbtn" id="npp-close" aria-label="Fechar">&times;</button></div>
         <div class="modal-body">
           <div class="alertbox info">${ICONS.check}<div>Já recebido: <strong>${fmtBRL(jaRecebido)}</strong>${jaDesconto>0?` &middot; Desconto já concedido: <strong>${fmtBRL(jaDesconto)}</strong>`:''} &middot; Saldo: <strong>${fmtBRL(remanescente)}</strong>.</div></div>
           <div id="npp-error"></div>
@@ -317,9 +317,9 @@
           <div class="hint">Mostra todos os pedidos com pagamento previsto nesse dia.</div>
         </div>
         <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px;">
-          <button class="iconbtn" id="ped-ano-prev">${ICONS.back}</button>
+          <button class="iconbtn" id="ped-ano-prev" title="Ano anterior" aria-label="Ano anterior">${ICONS.back}</button>
           <strong style="min-width:52px; text-align:center; font-size:15px;">${pedidoUI.filtroAno}</strong>
-          <button class="iconbtn" id="ped-ano-next" style="transform:scaleX(-1);">${ICONS.back}</button>
+          <button class="iconbtn" id="ped-ano-next" style="transform:scaleX(-1);" title="Próximo ano" aria-label="Próximo ano">${ICONS.back}</button>
         </div>
         <div style="display:flex; flex-wrap:wrap; gap:8px;">
           <button class="btn ${pedidoUI.filtroMes===null?'primary':''}" data-mes="">Todos <span style="opacity:.75;">(${totalAno})</span></button>
@@ -473,8 +473,8 @@
           <div style="display:flex; align-items:center; gap:10px;">
             <span class="badge ${quitado?'ok':'pending'}">${quitado?'Quitado':'Em aberto'}</span>
             <button class="btn ghost fp-duplicar" title="Criar um novo pedido com os mesmos itens">${ICONS.box} Duplicar pedido</button>
-            <button class="iconbtn fp-editar" title="Editar ficha">${ICONS.edit}</button>
-            <button class="iconbtn fp-excluir" title="Excluir ficha">${ICONS.trash}</button>
+            <button class="iconbtn fp-editar" title="Editar ficha" aria-label="Editar ficha">${ICONS.edit}</button>
+            <button class="iconbtn fp-excluir" title="Excluir ficha" aria-label="Excluir ficha">${ICONS.trash}</button>
           </div>
         </div>
         <dl>
@@ -574,7 +574,7 @@
     back.className = 'modal-backdrop';
     back.innerHTML = `
       <div class="modal" style="max-width:420px;">
-        <div class="modal-head"><h3>${(jaRecebido>0||jaDesconto>0)?'Novo pagamento nesta parcela':'Registrar pagamento'}</h3><button class="iconbtn" id="rp-close">&times;</button></div>
+        <div class="modal-head"><h3>${(jaRecebido>0||jaDesconto>0)?'Novo pagamento nesta parcela':'Registrar pagamento'}</h3><button class="iconbtn" id="rp-close" aria-label="Fechar">&times;</button></div>
         <div class="modal-body">
           ${(jaRecebido>0||jaDesconto>0) ? `<div class="alertbox info">${ICONS.check}<div>Já recebido nesta parcela: <strong>${fmtBRL(jaRecebido)}</strong>${jaDesconto>0?` &middot; Desconto já concedido: <strong>${fmtBRL(jaDesconto)}</strong>`:''} &middot; Saldo: <strong>${fmtBRL(remanescente)}</strong>.</div></div>` : ''}
           <div id="rp-error"></div>
@@ -640,7 +640,7 @@
     back.className = 'modal-backdrop';
     back.innerHTML = `
       <div class="modal" style="max-width:780px; max-height:88vh; display:flex; flex-direction:column;">
-        <div class="modal-head"><h3>Editar pedido nº ${esc(draft.numero)}</h3><button class="iconbtn" id="ef-close">&times;</button></div>
+        <div class="modal-head"><h3>Editar pedido nº ${esc(draft.numero)}</h3><button class="iconbtn" id="ef-close" aria-label="Fechar">&times;</button></div>
         <div class="modal-body" style="overflow-y:auto;">
           <div id="ef-error"></div>
           <div class="field-grid" style="margin-bottom:16px; grid-auto-flow:dense;">
@@ -744,7 +744,7 @@
             <div class="field" style="width:130px;"><label>Valor/parcela</label><input class="ef-valorparcela" data-it="${itIdx}" inputmode="decimal" value="${fmtNumBR(it.valor_parcela)}"></div>
             <div class="field" style="width:90px;"><label>Parcelas</label><input type="number" min="1" class="ef-parcelasqtd" data-it="${itIdx}" value="${it.parcelas_qtd||1}"></div>
             <div class="field" style="width:110px;"><label>Total</label><div class="ef-itemtotal" data-it="${itIdx}" style="padding:8px 0; font-weight:600;">${fmtBRL(itemTotal(it))}</div></div>
-            <button class="iconbtn ef-del-item" data-it="${itIdx}" title="Remover produto">${ICONS.trash}</button>
+            <button class="iconbtn ef-del-item" data-it="${itIdx}" title="Remover produto" aria-label="Remover produto">${ICONS.trash}</button>
           </div>
           ${(it.produtos_extras&&it.produtos_extras.length) ? `<div style="font-size:11.5px; color:var(--muted); margin-top:4px;">No combo desta parcela: ${it.produtos_extras.map(p=>esc(p.uni||1)+'x '+esc(p.descricao)).join(', ')}</div>` : ''}
           <div class="table-wrap" style="margin-top:10px;">
@@ -760,7 +760,7 @@
                     <td class="num">
                       <div style="display:flex; align-items:center; gap:4px; justify-content:flex-end;">
                         <input class="ef-recebimento" data-it="${itIdx}" data-p="${pIdx}" inputmode="decimal" value="${fmtNumBR(p.recebimento)}" style="text-align:right; width:100px;">
-                        <button type="button" class="iconbtn ef-add-pagamento" data-it="${itIdx}" data-p="${pIdx}" title="Somar um novo pagamento a esta parcela">${ICONS.plus}</button>
+                        <button type="button" class="iconbtn ef-add-pagamento" data-it="${itIdx}" data-p="${pIdx}" title="Somar um novo pagamento a esta parcela" aria-label="Somar um novo pagamento a esta parcela">${ICONS.plus}</button>
                       </div>
                       <div class="ef-pagtos-list" data-it="${itIdx}" data-p="${pIdx}" style="text-align:right; margin-top:4px; font-size:11px; color:var(--muted);">${pagamentos.length>1 ? pagamentos.map(pg=>`${fmtBRL(pg.valor)}${pg.data?(' &middot; '+fmtDate(pg.data)):''}`).join('<br>') : ''}</div>
                       <div class="ef-desconto-txt" data-it="${itIdx}" data-p="${pIdx}" style="text-align:right; margin-top:4px; font-size:11px; color:var(--success);">${(p.desconto||0)>0 ? ('desconto '+fmtBRL(p.desconto)) : ''}</div>
@@ -964,8 +964,8 @@
           <td class="num" style="width:90px;" rowspan="${rowspan}"><input type="number" min="1" data-idx="${idx}" class="np-parcelas" value="${it.parcelas_qtd}"></td>
           <td class="num" style="width:120px;" rowspan="${rowspan}"><input type="number" step="0.01" data-idx="${idx}" class="np-valorparcela" value="${it.valor_parcela}"></td>
           <td style="white-space:nowrap;">
-            <button class="iconbtn np-combo-add" data-idx="${idx}" title="Adicionar produto nesta mesma parcela (combo)">${ICONS.plus}</button>
-            <button class="iconbtn np-del" data-idx="${idx}" title="Remover">${ICONS.trash}</button>
+            <button class="iconbtn np-combo-add" data-idx="${idx}" title="Adicionar produto nesta mesma parcela (combo)" aria-label="Adicionar produto nesta mesma parcela (combo)">${ICONS.plus}</button>
+            <button class="iconbtn np-del" data-idx="${idx}" title="Remover" aria-label="Remover produto">${ICONS.trash}</button>
           </td>
         </tr>`;
         const linhasExtras = extras.map((p,exIdx)=>`
@@ -973,7 +973,7 @@
           <td style="min-width:220px;"><input list="dl-produtos" data-idx="${idx}" data-exidx="${exIdx}" class="npx-produto" value="${esc(p.produtoLabel||p.descricao||'')}" placeholder="Buscar produto…"></td>
           <td style="width:70px;"><input type="number" min="1" data-idx="${idx}" data-exidx="${exIdx}" class="npx-uni" value="${p.uni||1}"></td>
           <td class="num" style="width:120px;"><input type="number" step="0.01" data-idx="${idx}" data-exidx="${exIdx}" class="npx-unit" value="${p.valor_unit||0}"></td>
-          <td><button class="iconbtn npx-del" data-idx="${idx}" data-exidx="${exIdx}" title="Remover do combo">${ICONS.trash}</button></td>
+          <td><button class="iconbtn npx-del" data-idx="${idx}" data-exidx="${exIdx}" title="Remover do combo" aria-label="Remover produto do combo">${ICONS.trash}</button></td>
         </tr>`).join('');
         return linhaPrincipal + linhasExtras;
       }).join('');
