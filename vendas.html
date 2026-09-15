@@ -52,6 +52,7 @@
     filtroMes: null, filtroDia: null, filtroAno: new Date().getFullYear(),
     abrirNumero: null,
   };
+  let listaPedidosParaExport = [];
 
   /* -------- helpers de negócio locais -------- */
   function nextPedidoNumero(){
@@ -299,7 +300,10 @@
       <div class="card">
         <div class="card-head"><h2>Todos os pedidos</h2></div>
         <div class="card-body">
-          <div class="searchbar" style="max-width:320px; margin-bottom:14px;">${ICONS.search}<input id="ped-lista-filtro" placeholder="Buscar por nº ou cliente…" value="${esc(pedidoUI.listaFiltro)}"></div>
+          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:space-between; margin-bottom:14px;">
+            <div class="searchbar" style="max-width:320px;">${ICONS.search}<input id="ped-lista-filtro" placeholder="Buscar por nº ou cliente…" value="${esc(pedidoUI.listaFiltro)}"></div>
+            <button class="btn" id="ped-lista-export">${ICONS.upload} Exportar CSV</button>
+          </div>
           <div id="ped-lista-inner"></div>
         </div>
       </div>
@@ -375,6 +379,15 @@
     }
 
     document.getElementById('ped-lista-filtro').oninput = (e)=>{ pedidoUI.listaFiltro = e.target.value; pedidoUI.listaPage = 1; RO.rerenderKeepingFocus(renderListaPedidosBody); };
+    document.getElementById('ped-lista-export').onclick = ()=>{
+      const csv = RO.toCSV([
+        {label:'Nº', value:r=>r.p.numero}, {label:'Cliente', value:r=>r.clienteNome},
+        {label:'Data', value:r=>fmtDate(r.p.data_compra)}, {label:'Total', value:r=>fmtBRL(r.totalGeral)},
+        {label:'Próximo pagamento', value:r=> r.proximoPagamento ? fmtDate(r.proximoPagamento) : ''},
+        {label:'Status', value:r=> r.quitado ? 'Quitado' : 'Em aberto'},
+      ], listaPedidosParaExport);
+      RO.baixarArquivo('pedidos-'+todayISO()+'.csv', csv, 'text/csv;charset=utf-8;');
+    };
     function renderListaPedidosBody(){
       const wrapInner = document.getElementById('ped-lista-inner');
       if(!wrapInner) return;
@@ -406,6 +419,7 @@
         if(key==='proximo') return row.proximoPagamento ? row.proximoPagamento.getTime() : Infinity;
         return '';
       }, PED_LISTA_NUMERIC_KEYS, (a,b)=> (Number(b.p.numero)||0)-(Number(a.p.numero)||0));
+      listaPedidosParaExport = enriched;
       const total = enriched.length;
       const pages = Math.max(1, Math.ceil(total/PED_LISTA_PAGESIZE));
       pedidoUI.listaPage = Math.min(pedidoUI.listaPage, pages);
