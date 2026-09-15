@@ -487,6 +487,7 @@
           <div style="display:flex; align-items:center; gap:10px;">
             <span class="badge ${quitado?'ok':'pending'}">${quitado?'Quitado':'Em aberto'}</span>
             <button class="btn ghost fp-duplicar" title="Criar um novo pedido com os mesmos itens">${ICONS.box} Duplicar pedido</button>
+            <button class="iconbtn no-print" onclick="window.print()" title="Imprimir comprovante" aria-label="Imprimir comprovante">${ICONS.print}</button>
             <button class="iconbtn fp-editar" title="Editar ficha" aria-label="Editar ficha">${ICONS.edit}</button>
             <button class="iconbtn fp-excluir" title="Excluir ficha" aria-label="Excluir ficha">${ICONS.trash}</button>
           </div>

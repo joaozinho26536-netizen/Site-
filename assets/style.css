@@ -576,3 +576,21 @@ table.data th.sortable .sort-icon.asc{ transform:scaleY(-1); }
   *{ animation-duration:0.001ms !important; transition-duration:0.001ms !important; }
   .btn:hover, .btn:active, .kpi:hover, .tile:hover{ transform:none !important; }
 }
+
+/* ---------- impressão (comprovante do pedido) ----------
+   Esconde tudo, exceto a .ficha aberta no momento — funciona não importa
+   em que tela/aba ela esteja, sem precisar listar cada elemento da casca
+   (menu, topbar, toasts...) individualmente. */
+@media print{
+  body{ background:#fff !important; }
+  body *{ visibility:hidden; }
+  .ficha, .ficha *{ visibility:visible; }
+  .ficha{
+    position:absolute; top:0; left:0; width:100%;
+    border:none; box-shadow:none; padding:0;
+  }
+  .ficha, .ficha *{ color:#000 !important; background:transparent !important; }
+  .ficha .fp-duplicar, .ficha .fp-editar, .ficha .fp-excluir, .ficha .fp-pagar, .no-print{ display:none !important; }
+  .ficha table.data th, .ficha table.data td{ border-bottom:1px solid #999 !important; }
+  .ficha .badge{ border:1px solid #666; }
+}
