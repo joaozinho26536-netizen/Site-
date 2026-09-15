@@ -1,0 +1,8 @@
+{
+  "name": "ramos-de-oliveira-site",
+  "private": true,
+  "description": "Site estático (sem build) do sistema Ramos de Oliveira. package.json existe só para rodar os testes das regras de negócio.",
+  "scripts": {
+    "test": "node --test"
+  }
+}
