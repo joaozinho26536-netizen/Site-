@@ -44,28 +44,24 @@
 
   el.innerHTML = `
     <div class="kpi-row">
-      <div class="kpi"><div class="label">Clientes cadastrados</div><div class="value">${clientes.length}</div><div class="sub">base de clientes</div></div>
-      <div class="kpi"><div class="label">Produtos no catálogo</div><div class="value">${produtos.length}</div><div class="sub">itens ativos</div></div>
-      <div class="kpi"><div class="label">Pedidos neste mês</div><div class="value">${pedidosMes}</div><div class="sub">${now.toLocaleDateString('pt-BR',{month:'long',year:'numeric'})}</div></div>
-      <div class="kpi"><div class="label">Vendas neste mês</div><div class="value">${RO.fmtBRL(vendasMes)}</div><div class="sub">valor de venda dos pedidos</div></div>
+      <div class="kpi kpi-hero"><div class="label">Vendas neste mês</div><div class="value">${RO.fmtBRL(vendasMes)}</div><div class="sub">${now.toLocaleDateString('pt-BR',{month:'long',year:'numeric'})} &middot; valor de venda dos pedidos</div></div>
+      <div class="kpi"><div class="label">Pedidos neste mês</div><div class="value">${pedidosMes}</div><div class="sub">emitidos no mês</div></div>
+      <div class="kpi"><div class="label">A receber</div><div class="value">${RO.fmtBRL(totalReceber)}</div><div class="sub">parcelas em aberto</div></div>
     </div>
     <div class="kpi-row" style="margin-top:14px;">
-      <div class="kpi"><div class="label">A receber (parcelas pendentes)</div><div class="value">${RO.fmtBRL(totalReceber)}</div><div class="sub">todas as parcelas em aberto</div></div>
+      <div class="kpi"><div class="label">Clientes cadastrados</div><div class="value">${clientes.length}</div><div class="sub">base de clientes</div></div>
+      <div class="kpi"><div class="label">Produtos no catálogo</div><div class="value">${produtos.length}</div><div class="sub">itens ativos</div></div>
       <div class="kpi${vencidasLinhas.length?' kpi-alert':''}"><div class="label">Parcelas vencidas</div><div class="value">${vencidasLinhas.length}</div><div class="sub">${RO.fmtBRL(vencidasLinhas.reduce((s,l)=>s+l.valor,0))} em atraso</div></div>
       <div class="kpi${baixoEstoque.length?' kpi-alert':''}"><div class="label">Estoque baixo</div><div class="value">${baixoEstoque.length}</div><div class="sub">produto(s) no ponto de repor</div></div>
     </div>
 
-    <div class="card">
-      <div class="card-head"><h2>Menu</h2></div>
-      <div class="card-body">
-        <div class="tile-grid">
-          <a class="tile" href="clientes.html">${RO_NAV.ICONS.users}<span class="lbl">Clientes</span></a>
-          <a class="tile" href="produtos.html">${RO_NAV.ICONS.box}<span class="lbl">Produtos</span></a>
-          <a class="tile" href="vendas.html">${RO_NAV.ICONS.file}<span class="lbl">Vendas</span></a>
-          ${isAdmin ? `<a class="tile" href="financeiro.html">${RO_NAV.ICONS.coins}<span class="lbl">Financeiro</span></a>` : ''}
-          ${isAdmin ? `<a class="tile" href="backup.html">${RO_NAV.ICONS.upload}<span class="lbl">Backup</span></a>` : ''}
-        </div>
-      </div>
+    <div class="home-section-label">Acessar</div>
+    <div class="tile-grid">
+      <a class="tile" href="clientes.html">${RO_NAV.ICONS.users}<span class="lbl">Clientes</span></a>
+      <a class="tile" href="produtos.html">${RO_NAV.ICONS.box}<span class="lbl">Produtos</span></a>
+      <a class="tile" href="vendas.html">${RO_NAV.ICONS.file}<span class="lbl">Vendas</span></a>
+      ${isAdmin ? `<a class="tile" href="financeiro.html">${RO_NAV.ICONS.coins}<span class="lbl">Financeiro</span></a>` : ''}
+      ${isAdmin ? `<a class="tile" href="backup.html">${RO_NAV.ICONS.upload}<span class="lbl">Backup</span></a>` : ''}
     </div>
   `;
 })();
