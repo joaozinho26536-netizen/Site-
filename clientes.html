@@ -107,18 +107,18 @@
           <span>${ui.selected.size} selecionado${ui.selected.size===1?'':'s'}</span>
         </div>
         <div class="table-wrap">
-          <table class="data">
+          <table class="data mobile-cards">
             <thead><tr>${headerCells.join('')}</tr></thead>
             <tbody>
               ${pageItems.length ? pageItems.map(c=>`
                 <tr>
                   <td class="chk-col"><input type="checkbox" class="cli-check" value="${esc(c.codigo)}" ${ui.selected.has(c.codigo)?'checked':''} aria-label="Selecionar ${esc(c.nome||'cliente')}"></td>
-                  <td>${esc(c.codigo)}${c.pasta?`<br><span style="color:var(--muted); font-size:11px;">${esc(c.pasta)}</span>`:''}</td>
-                  <td>${esc(c.nome)}</td>
-                  ${ui.cols.cpf?`<td>${esc(c.cpf_cnpj)||'—'}</td>`:''}
-                  ${ui.cols.cidade?`<td>${esc(c.cidade)}${c.estado?('/'+esc(c.estado)):''}</td>`:''}
-                  ${ui.cols.telefone?`<td>${esc(c.telefone)||'—'}</td>`:''}
-                  ${ui.cols.cadastro?`<td>${fmtDate(c.data_cadastro)}</td>`:''}
+                  <td data-label="Cód.">${esc(c.codigo)}${c.pasta?`<br><span style="color:var(--muted); font-size:11px;">${esc(c.pasta)}</span>`:''}</td>
+                  <td data-label="Nome">${esc(c.nome)}</td>
+                  ${ui.cols.cpf?`<td data-label="CPF/CNPJ">${esc(c.cpf_cnpj)||'—'}</td>`:''}
+                  ${ui.cols.cidade?`<td data-label="Cidade/UF">${esc(c.cidade)}${c.estado?('/'+esc(c.estado)):''}</td>`:''}
+                  ${ui.cols.telefone?`<td data-label="Telefone">${esc(c.telefone)||'—'}</td>`:''}
+                  ${ui.cols.cadastro?`<td data-label="Cadastro">${fmtDate(c.data_cadastro)}</td>`:''}
                   <td><div class="rowactions">
                     <button class="iconbtn" data-edit="${esc(c.codigo)}" title="Editar" aria-label="Editar cliente">${ICONS.edit}</button>
                     <button class="iconbtn" data-del="${esc(c.codigo)}" title="Excluir" aria-label="Excluir cliente">${ICONS.trash}</button>

@@ -97,20 +97,20 @@
           <span>${ui.selected.size} selecionado${ui.selected.size===1?'':'s'}</span>
         </div>
         <div class="table-wrap">
-          <table class="data">
+          <table class="data mobile-cards">
             <thead><tr>${headerCells.join('')}</tr></thead>
             <tbody>
               ${pageItems.length ? pageItems.map(p=>`
                 <tr>
                   <td class="chk-col"><input type="checkbox" class="prod-check" value="${esc(p.codigo)}" ${ui.selected.has(p.codigo)?'checked':''} aria-label="Selecionar ${esc(p.descricao||'produto')}"></td>
-                  <td>${esc(p.codigo)}</td>
-                  ${ui.cols.foto?`<td>${p.imagem ? `<img src="${esc(p.imagem)}" alt="" style="width:36px; height:36px; object-fit:contain; border-radius:6px; border:1px solid var(--border); background:#fff;">` : ''}</td>`:''}
-                  <td>${esc(p.descricao)}</td>
-                  ${ui.cols.ncm?`<td>${p.ncm ? esc(p.ncm) : '<span class="badge pending">sem NCM</span>'}</td>`:''}
-                  ${ui.cols.custo?`<td class="num">${fmtBRL(p.valor_compra)}</td>`:''}
-                  ${ui.cols.venda?`<td class="num">${fmtBRL(p.valor_venda)}</td>`:''}
-                  ${ui.cols.lucro?`<td class="num">${fmtBRL((Number(p.valor_venda)||0)-(Number(p.valor_compra)||0))}</td>`:''}
-                  ${ui.cols.estoque?`<td class="num">${estoqueControlado(p) ? (estoqueBaixo(p) ? `<span class="badge alert">${esc(p.estoque)} un.</span>` : (p.estoque+' un.')) : '<span class="badge neutral">não controlado</span>'}</td>`:''}
+                  <td data-label="Cód.">${esc(p.codigo)}</td>
+                  ${ui.cols.foto?`<td data-label="Foto">${p.imagem ? `<img src="${esc(p.imagem)}" alt="" style="width:36px; height:36px; object-fit:contain; border-radius:6px; border:1px solid var(--border); background:#fff;">` : ''}</td>`:''}
+                  <td data-label="Descrição">${esc(p.descricao)}</td>
+                  ${ui.cols.ncm?`<td data-label="NCM">${p.ncm ? esc(p.ncm) : '<span class="badge pending">sem NCM</span>'}</td>`:''}
+                  ${ui.cols.custo?`<td class="num" data-label="Custo">${fmtBRL(p.valor_compra)}</td>`:''}
+                  ${ui.cols.venda?`<td class="num" data-label="Venda">${fmtBRL(p.valor_venda)}</td>`:''}
+                  ${ui.cols.lucro?`<td class="num" data-label="Lucro">${fmtBRL((Number(p.valor_venda)||0)-(Number(p.valor_compra)||0))}</td>`:''}
+                  ${ui.cols.estoque?`<td class="num" data-label="Estoque">${estoqueControlado(p) ? (estoqueBaixo(p) ? `<span class="badge alert">${esc(p.estoque)} un.</span>` : (p.estoque+' un.')) : '<span class="badge neutral">não controlado</span>'}</td>`:''}
                   <td><div class="rowactions">
                     <button class="iconbtn" data-edit="${esc(p.codigo)}" title="Editar" aria-label="Editar produto">${ICONS.edit}</button>
                     <button class="iconbtn" data-del="${esc(p.codigo)}" title="Excluir" aria-label="Excluir produto">${ICONS.trash}</button>
