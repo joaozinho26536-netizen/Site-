@@ -25,6 +25,7 @@
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
+    color-scheme:dark;
     --bg:#1B1C14;
     --surface:#24261B;
     --ink:#EDEEE2;
@@ -47,6 +48,7 @@
   }
 }
 :root[data-theme="dark"]{
+  color-scheme:dark;
   --bg:#1B1C14;
   --surface:#24261B;
   --ink:#EDEEE2;
@@ -175,6 +177,12 @@ nav.mainnav{ display:flex; flex-direction:row; align-items:center; gap:2px; flex
   background:none; border:none; color:rgba(255,255,255,.85); font-size:11px;
   cursor:pointer; text-decoration:underline; padding:0; font-family:inherit;
 }
+.topnav-foot .iconbtn{
+  width:28px; height:28px; text-decoration:none;
+  background:transparent; border:1px solid rgba(255,255,255,.35); color:#fff;
+}
+.topnav-foot .iconbtn:hover{ background:rgba(255,255,255,.1); border-color:rgba(255,255,255,.5); }
+.topnav-foot .iconbtn svg{ width:15px; height:15px; }
 
 #main{ flex:1; min-width:0; display:flex; flex-direction:column; }
 .topbar{
