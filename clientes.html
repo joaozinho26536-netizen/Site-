@@ -94,6 +94,7 @@
               <label class="so-col"><input type="checkbox" class="cli-so-col" data-col="cadastro" ${ui.cols.cadastro?'checked':''}> Cadastro</label>
             </div>` : ''}
           </div>
+          <button class="btn" id="cli-export">${ICONS.upload} Exportar CSV</button>
           <button class="btn primary" id="cli-new">${ICONS.plus} Novo cliente</button>
         </div>
       </div>
@@ -141,6 +142,15 @@
     document.getElementById('cli-f-nome').oninput = (e)=>{ ui.fNome = e.target.value; ui.page=1; RO.rerenderKeepingFocus(render); };
     document.getElementById('cli-f-cpf').oninput = (e)=>{ ui.fCpf = e.target.value; ui.page=1; RO.rerenderKeepingFocus(render); };
     document.getElementById('cli-new').onclick = ()=> openClienteModal(null);
+    document.getElementById('cli-export').onclick = ()=>{
+      const csv = RO.toCSV([
+        {key:'codigo', label:'Código'}, {key:'nome', label:'Nome'}, {key:'cpf_cnpj', label:'CPF/CNPJ'},
+        {key:'telefone', label:'Telefone'},
+        {label:'Cidade/UF', value:c=>[c.cidade,c.estado].filter(Boolean).join('/')},
+        {label:'Cadastro', value:c=>fmtDate(c.data_cadastro)},
+      ], list);
+      RO.baixarArquivo('clientes-'+todayISO()+'.csv', csv, 'text/csv;charset=utf-8;');
+    };
     RO.wireSortHeaders(el, ui, NUMERIC_KEYS, render);
     const prevBtn = document.getElementById('cli-prev'); if(prevBtn) prevBtn.onclick = ()=>{ ui.page--; render(); };
     const nextBtn = document.getElementById('cli-next'); if(nextBtn) nextBtn.onclick = ()=>{ ui.page++; render(); };

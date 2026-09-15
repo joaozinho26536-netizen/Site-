@@ -74,6 +74,28 @@ function confirmar(mensagem, opts){
   });
 }
 
+/* ---------------- exportação CSV ---------------- */
+function csvEscape(v){
+  if(v===null || v===undefined) return '';
+  const s = String(v);
+  return /[;"\n\r]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
+}
+// columns: [{key, label} | {value: fn(row), label}]
+function toCSV(columns, rows){
+  const header = columns.map(c=>csvEscape(c.label)).join(';');
+  const body = rows.map(r=> columns.map(c=> csvEscape(typeof c.value==='function' ? c.value(r) : r[c.key])).join(';')).join('\r\n');
+  return '﻿' + header + '\r\n' + body;
+}
+function baixarArquivo(filename, conteudo, mime){
+  const blob = conteudo instanceof Blob ? conteudo : new Blob([conteudo], {type: mime||'text/plain;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=> URL.revokeObjectURL(url), 4000);
+  toast('Arquivo exportado: '+filename, 'ok');
+}
+
 /* ---------------- skeleton loaders (lugar do spinner genérico enquanto os
    dados do Supabase ainda não chegaram) ---------------- */
 function skeletonKpiRow(n, heroFirst){
@@ -449,7 +471,8 @@ async function requireAdmin(){
 
 window.RO = {
   sb, fmtBRL, fmtDate, todayISO, esc, onlyDigits, normName, fmtNumBR, parseNumBR, maskMoneyInput,
-  toast, confirmar, skeletonKpiRow, skeletonTable, sortRows, thSort, wireSortHeaders, rerenderKeepingFocus, requireAuth, logout,
+  toast, confirmar, skeletonKpiRow, skeletonTable, csvEscape, toCSV, baixarArquivo,
+  sortRows, thSort, wireSortHeaders, rerenderKeepingFocus, requireAuth, logout,
   getMeuPerfil, requireAdmin,
   loadAllRows, loadClientes, loadClientesMap, loadProdutos, loadProdutosMap,
   loadPedidos, loadPedidosMap, loadPedidoByNumero,

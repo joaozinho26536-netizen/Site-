@@ -84,6 +84,7 @@
               <label class="so-col"><input type="checkbox" class="prod-so-col" data-col="estoque" ${ui.cols.estoque?'checked':''}> Estoque</label>
             </div>` : ''}
           </div>
+          <button class="btn" id="prod-export">${ICONS.upload} Exportar CSV</button>
           <button class="btn primary" id="prod-new">${ICONS.plus} Novo produto</button>
         </div>
       </div>
@@ -130,6 +131,15 @@
     `;
     document.getElementById('prod-search').oninput = (e)=>{ ui.search = e.target.value; ui.page=1; RO.rerenderKeepingFocus(render); };
     document.getElementById('prod-new').onclick = ()=> openProdutoModal(null);
+    document.getElementById('prod-export').onclick = ()=>{
+      const csv = RO.toCSV([
+        {key:'codigo', label:'Código'}, {key:'descricao', label:'Descrição'}, {key:'ncm', label:'NCM'},
+        {label:'Custo', value:p=>fmtBRL(p.valor_compra)}, {label:'Venda', value:p=>fmtBRL(p.valor_venda)},
+        {label:'Lucro', value:p=>fmtBRL((Number(p.valor_venda)||0)-(Number(p.valor_compra)||0))},
+        {label:'Estoque', value:p=> estoqueControlado(p) ? p.estoque : 'não controlado'},
+      ], list);
+      RO.baixarArquivo('produtos-'+RO.todayISO()+'.csv', csv, 'text/csv;charset=utf-8;');
+    };
     RO.wireSortHeaders(el, ui, NUMERIC_KEYS, render);
     const prevBtn = document.getElementById('prod-prev'); if(prevBtn) prevBtn.onclick = ()=>{ ui.page--; render(); };
     const nextBtn = document.getElementById('prod-next'); if(nextBtn) nextBtn.onclick = ()=>{ ui.page++; render(); };
