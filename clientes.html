@@ -17,19 +17,28 @@
   const ICONS = RO_NAV.ICONS;
   const esc = RO.esc, fmtDate = RO.fmtDate, onlyDigits = RO.onlyDigits, normName = RO.normName, toast = RO.toast, todayISO = RO.todayISO, confirmar = RO.confirmar;
 
-  const S = { clientes: new Map(), loaded: false };
+  // S.pagina: só os clientes da página atual, com todas as colunas — o que a
+  // tela exibe. S.indice: TODOS os clientes, mas só código/nome/cpf — usado
+  // pra duplicidade de CPF e pro próximo código sequencial, sem precisar
+  // trazer a base inteira com todas as colunas pra memória do navegador.
+  const S = { pagina: new Map(), indice: new Map(), loaded: false };
   const ui = {
-    fCodigo:'', fNome:'', fCpf:'', page:1, pageSize:50,
+    fCodigo:'', fNome:'', fCpf:'', page:1, pageSize:50, total:0,
     selected: new Set(), screenOptsOpen: false,
     cols: { cpf:true, cidade:true, telefone:true, cadastro:true },
     sortKey: null, sortDir: 'asc',
   };
   const NUMERIC_KEYS = new Set(['codigo']);
+  let buscaSeq = 0; // descarta respostas de buscas antigas que cheguem fora de ordem
+  const renderComBusca = RO.debounce(()=> RO.rerenderKeepingFocus(render), 300);
+
+  function removerDoIndice(codigo){ S.indice.delete(codigo); }
+  function atualizarIndice(cliente){ S.indice.set(cliente.codigo, { codigo:cliente.codigo, nome:cliente.nome, cpf_cnpj:cliente.cpf_cnpj }); }
 
   const el = document.getElementById('content');
   el.innerHTML = RO.skeletonTable(8);
   try{
-    (await RO.loadClientes()).forEach(c=> S.clientes.set(c.codigo, c));
+    S.indice = new Map((await RO.loadClientesIndice()).map(c=>[c.codigo,c]));
     S.loaded = true;
   }catch(e){
     el.innerHTML = '<div class="empty">'+ICONS.warn+'<div>Erro ao carregar clientes: '+esc(e.message)+'</div></div>';
@@ -38,7 +47,7 @@
 
   function findCpfDuplicates(){
     const byCpf = new Map();
-    S.clientes.forEach(c=>{
+    S.indice.forEach(c=>{
       const cpf = onlyDigits(c.cpf_cnpj);
       if(!cpf) return;
       if(!byCpf.has(cpf)) byCpf.set(cpf, []);
@@ -49,21 +58,43 @@
     return dups;
   }
 
-  function render(){
+  // Busca TODOS os clientes que batem com o filtro atual (não só a página em
+  // tela) pra exportação em CSV — reaproveita queryClientesPage em lotes de
+  // 1000, igual loadAllRows faz pra tabela inteira.
+  async function exportarTodosFiltrados(){
+    const fCodigo = ui.fCodigo.trim(), fNome = ui.fNome.trim(), fCpf = ui.fCpf.trim();
+    const todos = [];
+    let page = 1;
+    while(true){
+      const { rows, total } = await RO.queryClientesPage({ fCodigo, fNome, fCpf, sortKey: ui.sortKey, sortDir: ui.sortDir, page, pageSize: 1000 });
+      todos.push(...rows);
+      if(todos.length >= total || rows.length===0) break;
+      page++;
+    }
+    return todos;
+  }
+
+  async function render(){
     const dups = findCpfDuplicates();
-    const fCodigo = ui.fCodigo.trim().toLowerCase();
-    const fNome = ui.fNome.trim().toLowerCase();
-    const fCpf = onlyDigits(ui.fCpf);
-    let list = Array.from(S.clientes.values());
-    if(fCodigo) list = list.filter(c => String(c.codigo).toLowerCase().includes(fCodigo) || (c.pasta||'').toLowerCase().includes(fCodigo));
-    if(fNome) list = list.filter(c => (c.nome||'').toLowerCase().includes(fNome));
-    if(fCpf) list = list.filter(c => onlyDigits(c.cpf_cnpj).includes(fCpf));
-    list = RO.sortRows(list, ui, (c,key)=>c[key], NUMERIC_KEYS, (a,b)=> (a.nome||'').localeCompare(b.nome||''));
-    const total = list.length;
+    const fCodigo = ui.fCodigo.trim();
+    const fNome = ui.fNome.trim();
+    const fCpf = ui.fCpf.trim();
+    const minhaSeq = ++buscaSeq;
+    let rows, total;
+    try{
+      const resultado = await RO.queryClientesPage({ fCodigo, fNome, fCpf, sortKey: ui.sortKey, sortDir: ui.sortDir, page: ui.page, pageSize: ui.pageSize });
+      if(minhaSeq !== buscaSeq) return; // uma busca mais nova já chegou primeiro
+      rows = resultado.rows; total = resultado.total;
+    }catch(e){
+      if(minhaSeq !== buscaSeq) return;
+      el.innerHTML = '<div class="empty">'+ICONS.warn+'<div>Erro ao buscar clientes: '+esc(e.message)+'</div></div>';
+      return;
+    }
+    S.pagina = new Map(rows.map(c=>[c.codigo,c]));
+    ui.total = total;
     const pages = Math.max(1, Math.ceil(total/ui.pageSize));
-    ui.page = Math.min(ui.page, pages);
-    const start = (ui.page-1)*ui.pageSize;
-    const pageItems = list.slice(start, start+ui.pageSize);
+    if(ui.page > pages){ ui.page = pages; return render(); }
+    const pageItems = rows;
 
     const headerCells = ['<th class="chk-col"><input type="checkbox" id="cli-check-all" aria-label="Selecionar todos"></th>', RO.thSort('Cód.','codigo',ui,NUMERIC_KEYS), RO.thSort('Nome','nome',ui,NUMERIC_KEYS)];
     if(ui.cols.cpf) headerCells.push(RO.thSort('CPF/CNPJ','cpf_cnpj',ui,NUMERIC_KEYS));
@@ -138,23 +169,32 @@
       </div>
     `;
 
-    document.getElementById('cli-f-codigo').oninput = (e)=>{ ui.fCodigo = e.target.value; ui.page=1; RO.rerenderKeepingFocus(render); };
-    document.getElementById('cli-f-nome').oninput = (e)=>{ ui.fNome = e.target.value; ui.page=1; RO.rerenderKeepingFocus(render); };
-    document.getElementById('cli-f-cpf').oninput = (e)=>{ ui.fCpf = e.target.value; ui.page=1; RO.rerenderKeepingFocus(render); };
+    document.getElementById('cli-f-codigo').oninput = (e)=>{ ui.fCodigo = e.target.value; ui.page=1; renderComBusca(); };
+    document.getElementById('cli-f-nome').oninput = (e)=>{ ui.fNome = e.target.value; ui.page=1; renderComBusca(); };
+    document.getElementById('cli-f-cpf').oninput = (e)=>{ ui.fCpf = e.target.value; ui.page=1; renderComBusca(); };
     document.getElementById('cli-new').onclick = ()=> openClienteModal(null);
-    document.getElementById('cli-export').onclick = ()=>{
-      const csv = RO.toCSV([
-        {key:'codigo', label:'Código'}, {key:'nome', label:'Nome'}, {key:'cpf_cnpj', label:'CPF/CNPJ'},
-        {key:'telefone', label:'Telefone'},
-        {label:'Cidade/UF', value:c=>[c.cidade,c.estado].filter(Boolean).join('/')},
-        {label:'Cadastro', value:c=>fmtDate(c.data_cadastro)},
-      ], list);
-      RO.baixarArquivo('clientes-'+todayISO()+'.csv', csv, 'text/csv;charset=utf-8;');
+    document.getElementById('cli-export').onclick = async (e)=>{
+      const btn = e.currentTarget;
+      const original = btn.innerHTML;
+      btn.disabled = true; btn.innerHTML = 'Exportando…';
+      try{
+        const todos = await exportarTodosFiltrados();
+        const csv = RO.toCSV([
+          {key:'codigo', label:'Código'}, {key:'nome', label:'Nome'}, {key:'cpf_cnpj', label:'CPF/CNPJ'},
+          {key:'telefone', label:'Telefone'},
+          {label:'Cidade/UF', value:c=>[c.cidade,c.estado].filter(Boolean).join('/')},
+          {label:'Cadastro', value:c=>fmtDate(c.data_cadastro)},
+        ], todos);
+        RO.baixarArquivo('clientes-'+todayISO()+'.csv', csv, 'text/csv;charset=utf-8;');
+      }catch(err){
+        toast('Erro ao exportar: '+err.message, 'err');
+      }
+      btn.disabled = false; btn.innerHTML = original;
     };
     RO.wireSortHeaders(el, ui, NUMERIC_KEYS, render);
     const prevBtn = document.getElementById('cli-prev'); if(prevBtn) prevBtn.onclick = ()=>{ ui.page--; render(); };
     const nextBtn = document.getElementById('cli-next'); if(nextBtn) nextBtn.onclick = ()=>{ ui.page++; render(); };
-    el.querySelectorAll('[data-edit]').forEach(b=> b.onclick = ()=> openClienteModal(S.clientes.get(b.dataset.edit)));
+    el.querySelectorAll('[data-edit]').forEach(b=> b.onclick = ()=> openClienteModal(S.pagina.get(b.dataset.edit)));
     el.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=> deleteCliente(b.dataset.del));
 
     document.getElementById('cli-so-btn').onclick = ()=>{ ui.screenOptsOpen = !ui.screenOptsOpen; render(); };
@@ -203,7 +243,7 @@
       for(const codigo of codigos){
         const { error } = await RO.sb.from('clientes').delete().eq('codigo', codigo);
         if(error){ console.error('Erro ao excluir cliente '+codigo+':', error); fail++; continue; }
-        S.clientes.delete(codigo);
+        removerDoIndice(codigo);
         ui.selected.delete(codigo);
         ok++;
       }
@@ -213,11 +253,11 @@
   }
 
   async function deleteCliente(codigo){
-    const c = S.clientes.get(codigo);
+    const c = S.pagina.get(codigo);
     if(!(await confirmar('Excluir o cliente "'+(c?c.nome:codigo)+'"? Esta ação não pode ser desfeita.', {confirmar:'Excluir'}))) return;
     const { error } = await RO.sb.from('clientes').delete().eq('codigo', codigo);
     if(error){ toast('Erro ao excluir: '+error.message, 'err'); return; }
-    S.clientes.delete(codigo);
+    removerDoIndice(codigo);
     ui.selected.delete(codigo);
     toast('Cliente excluído.', 'ok');
     render();
@@ -225,7 +265,7 @@
 
   function openClienteModal(existing){
     const isEdit = !!existing;
-    const c = existing || { codigo: RO.nextCodigo(S.clientes), nome:'', rg:'', cpf_cnpj:'', rua:'', numero:'', cep:'', bairro:'', telefone:'', cidade:'', estado:'', data_cadastro: todayISO() };
+    const c = existing || { codigo: RO.nextCodigo(S.indice), nome:'', rg:'', cpf_cnpj:'', rua:'', numero:'', cep:'', bairro:'', telefone:'', cidade:'', estado:'', data_cadastro: todayISO() };
 
     const back = document.createElement('div');
     back.className = 'modal-backdrop';
@@ -271,14 +311,14 @@
         errBox.innerHTML = '<div class="alertbox danger">'+ICONS.warn+'<div>Código e nome são obrigatórios.</div></div>';
         return;
       }
-      if(!isEdit && S.clientes.has(codigo)){
+      if(!isEdit && S.indice.has(codigo)){
         errBox.innerHTML = '<div class="alertbox danger">'+ICONS.warn+'<div>Já existe um cliente com o código '+esc(codigo)+'.</div></div>';
         return;
       }
       const cpfDigits = onlyDigits(cpf);
       if(cpfDigits){
         let conflict = null;
-        S.clientes.forEach(other=>{
+        S.indice.forEach(other=>{
           if(other.codigo!==codigo && onlyDigits(other.cpf_cnpj)===cpfDigits) conflict = other;
         });
         if(conflict){
@@ -288,7 +328,7 @@
       }
       if(!isEdit){
         let sameName = null;
-        S.clientes.forEach(other=>{ if(normName(other.nome)===normName(nome)) sameName = other; });
+        S.indice.forEach(other=>{ if(normName(other.nome)===normName(nome)) sameName = other; });
         if(sameName && !(await confirmar('Já existe um cliente chamado "'+sameName.nome+'" (código '+sameName.codigo+'). Deseja cadastrar mesmo assim?', {perigo:false, confirmar:'Cadastrar mesmo assim'}))) return;
       }
 
@@ -309,7 +349,7 @@
         ? await RO.sb.from('clientes').update(data).eq('codigo', codigo)
         : await RO.sb.from('clientes').insert(data);
       if(error){ errBox.innerHTML = '<div class="alertbox danger">'+ICONS.warn+'<div>Erro ao salvar: '+esc(error.message)+'</div></div>'; return; }
-      S.clientes.set(codigo, data);
+      atualizarIndice(data);
       toast(isEdit?'Cliente atualizado.':'Cliente cadastrado.', 'ok');
       close();
       render();

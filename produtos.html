@@ -18,7 +18,11 @@
   const esc = RO.esc, fmtBRL = RO.fmtBRL, normName = RO.normName, toast = RO.toast, confirmar = RO.confirmar;
   const estoqueControlado = RO.estoqueControlado, estoqueBaixo = RO.estoqueBaixo;
 
-  const S = { produtos: new Map(), loaded: false };
+  // S.pagina: só os produtos da página atual, com todas as colunas. S.indice:
+  // TODOS os produtos, mas só código/descrição/ncm/estoque/estoque_min —
+  // usado pros alertas de estoque baixo/sem NCM e pro próximo código
+  // sequencial, sem trazer a base inteira com todas as colunas pra memória.
+  const S = { pagina: new Map(), indice: new Map(), loaded: false };
   const ui = {
     search:'', page:1, pageSize:50,
     selected: new Set(), screenOptsOpen: false,
@@ -26,32 +30,67 @@
     sortKey: null, sortDir: 'asc',
   };
   const NUMERIC_KEYS = new Set(['codigo','valor_compra','valor_venda','lucro','estoque']);
-  function sortGetter(p, key){ return key==='lucro' ? (Number(p.valor_venda)||0)-(Number(p.valor_compra)||0) : p[key]; }
+  let buscaSeq = 0;
+  const renderComBusca = RO.debounce(()=> RO.rerenderKeepingFocus(render), 300);
+
+  function removerDoIndice(codigo){ S.indice.delete(codigo); }
+  function atualizarIndice(p){ S.indice.set(p.codigo, { codigo:p.codigo, descricao:p.descricao, ncm:p.ncm, estoque:p.estoque, estoque_min:p.estoque_min }); }
 
   const el = document.getElementById('content');
   el.innerHTML = RO.skeletonTable(8);
   try{
-    (await RO.loadProdutos()).forEach(p=> S.produtos.set(p.codigo, p));
+    S.indice = new Map((await RO.loadProdutosIndice()).map(p=>[p.codigo,p]));
     S.loaded = true;
   }catch(e){
     el.innerHTML = '<div class="empty">'+ICONS.warn+'<div>Erro ao carregar produtos: '+esc(e.message)+'</div></div>';
     return;
   }
 
-  function render(){
-    const q = ui.search.trim().toLowerCase();
-    let list = Array.from(S.produtos.values());
-    if(q){
-      list = list.filter(p => (p.descricao||'').toLowerCase().includes(q) || String(p.codigo).toLowerCase().includes(q) || (p.ncm||'').toLowerCase().includes(q));
+  // Exporta TODOS os produtos que batem com a busca atual (não só a página
+  // em tela), em lotes de 1000.
+  async function exportarTodosFiltrados(){
+    const search = ui.search.trim();
+    const todos = [];
+    let page = 1;
+    while(true){
+      const { rows, total } = await RO.queryProdutosPage({ search, sortKey: ui.sortKey==='lucro'?null:ui.sortKey, sortDir: ui.sortDir, page, pageSize: 1000 });
+      todos.push(...rows);
+      if(todos.length >= total || rows.length===0) break;
+      page++;
     }
-    list = RO.sortRows(list, ui, sortGetter, NUMERIC_KEYS, (a,b)=> (a.descricao||'').localeCompare(b.descricao||''));
-    const total = list.length;
+    return todos;
+  }
+
+  async function render(){
+    const search = ui.search.trim();
+    const semNcm = Array.from(S.indice.values()).filter(p=>!p.ncm).length;
+    const baixoEstoque = Array.from(S.indice.values()).filter(estoqueBaixo);
+    const minhaSeq = ++buscaSeq;
+    let rows, total;
+    try{
+      // "lucro" é calculado (venda-custo), não existe como coluna — não dá
+      // pra ordenar no servidor por ele; nesse caso busca na ordem padrão e
+      // ordena só a página atual no navegador (ordenação global por lucro
+      // deixaria de ser exata, mas continua correta dentro da página).
+      const resultado = await RO.queryProdutosPage({ search, sortKey: ui.sortKey==='lucro'?null:ui.sortKey, sortDir: ui.sortDir, page: ui.page, pageSize: ui.pageSize });
+      if(minhaSeq !== buscaSeq) return;
+      rows = resultado.rows; total = resultado.total;
+      if(ui.sortKey==='lucro'){
+        rows = rows.slice().sort((a,b)=>{
+          const la = (Number(a.valor_venda)||0)-(Number(a.valor_compra)||0);
+          const lb = (Number(b.valor_venda)||0)-(Number(b.valor_compra)||0);
+          return ui.sortDir==='asc' ? la-lb : lb-la;
+        });
+      }
+    }catch(e){
+      if(minhaSeq !== buscaSeq) return;
+      el.innerHTML = '<div class="empty">'+ICONS.warn+'<div>Erro ao buscar produtos: '+esc(e.message)+'</div></div>';
+      return;
+    }
+    S.pagina = new Map(rows.map(p=>[p.codigo,p]));
     const pages = Math.max(1, Math.ceil(total/ui.pageSize));
-    ui.page = Math.min(ui.page, pages);
-    const start = (ui.page-1)*ui.pageSize;
-    const pageItems = list.slice(start, start+ui.pageSize);
-    const semNcm = list.filter(p=>!p.ncm).length;
-    const baixoEstoque = Array.from(S.produtos.values()).filter(estoqueBaixo);
+    if(ui.page > pages){ ui.page = pages; return render(); }
+    const pageItems = rows;
 
     const headerCells = ['<th class="chk-col"><input type="checkbox" id="prod-check-all" aria-label="Selecionar todos"></th>', RO.thSort('Cód.','codigo',ui,NUMERIC_KEYS)];
     if(ui.cols.foto) headerCells.push('<th>Foto</th>');
@@ -129,21 +168,30 @@
         </div>
       </div>
     `;
-    document.getElementById('prod-search').oninput = (e)=>{ ui.search = e.target.value; ui.page=1; RO.rerenderKeepingFocus(render); };
+    document.getElementById('prod-search').oninput = (e)=>{ ui.search = e.target.value; ui.page=1; renderComBusca(); };
     document.getElementById('prod-new').onclick = ()=> openProdutoModal(null);
-    document.getElementById('prod-export').onclick = ()=>{
-      const csv = RO.toCSV([
-        {key:'codigo', label:'Código'}, {key:'descricao', label:'Descrição'}, {key:'ncm', label:'NCM'},
-        {label:'Custo', value:p=>fmtBRL(p.valor_compra)}, {label:'Venda', value:p=>fmtBRL(p.valor_venda)},
-        {label:'Lucro', value:p=>fmtBRL((Number(p.valor_venda)||0)-(Number(p.valor_compra)||0))},
-        {label:'Estoque', value:p=> estoqueControlado(p) ? p.estoque : 'não controlado'},
-      ], list);
-      RO.baixarArquivo('produtos-'+RO.todayISO()+'.csv', csv, 'text/csv;charset=utf-8;');
+    document.getElementById('prod-export').onclick = async (e)=>{
+      const btn = e.currentTarget;
+      const original = btn.innerHTML;
+      btn.disabled = true; btn.innerHTML = 'Exportando…';
+      try{
+        const todos = await exportarTodosFiltrados();
+        const csv = RO.toCSV([
+          {key:'codigo', label:'Código'}, {key:'descricao', label:'Descrição'}, {key:'ncm', label:'NCM'},
+          {label:'Custo', value:p=>fmtBRL(p.valor_compra)}, {label:'Venda', value:p=>fmtBRL(p.valor_venda)},
+          {label:'Lucro', value:p=>fmtBRL((Number(p.valor_venda)||0)-(Number(p.valor_compra)||0))},
+          {label:'Estoque', value:p=> estoqueControlado(p) ? p.estoque : 'não controlado'},
+        ], todos);
+        RO.baixarArquivo('produtos-'+RO.todayISO()+'.csv', csv, 'text/csv;charset=utf-8;');
+      }catch(err){
+        toast('Erro ao exportar: '+err.message, 'err');
+      }
+      btn.disabled = false; btn.innerHTML = original;
     };
     RO.wireSortHeaders(el, ui, NUMERIC_KEYS, render);
     const prevBtn = document.getElementById('prod-prev'); if(prevBtn) prevBtn.onclick = ()=>{ ui.page--; render(); };
     const nextBtn = document.getElementById('prod-next'); if(nextBtn) nextBtn.onclick = ()=>{ ui.page++; render(); };
-    el.querySelectorAll('[data-edit]').forEach(b=> b.onclick = ()=> openProdutoModal(S.produtos.get(b.dataset.edit)));
+    el.querySelectorAll('[data-edit]').forEach(b=> b.onclick = ()=> openProdutoModal(S.pagina.get(b.dataset.edit)));
     el.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=> deleteProduto(b.dataset.del));
 
     document.getElementById('prod-so-btn').onclick = ()=>{ ui.screenOptsOpen = !ui.screenOptsOpen; render(); };
@@ -192,7 +240,7 @@
       for(const codigo of codigos){
         const { error } = await RO.sb.from('produtos').delete().eq('codigo', codigo);
         if(error){ console.error('Erro ao excluir produto '+codigo+':', error); fail++; continue; }
-        S.produtos.delete(codigo);
+        removerDoIndice(codigo);
         ui.selected.delete(codigo);
         ok++;
       }
@@ -202,11 +250,11 @@
   }
 
   async function deleteProduto(codigo){
-    const p = S.produtos.get(codigo);
+    const p = S.pagina.get(codigo);
     if(!(await confirmar('Excluir o produto "'+(p?p.descricao:codigo)+'"? Esta ação não pode ser desfeita.', {confirmar:'Excluir'}))) return;
     const { error } = await RO.sb.from('produtos').delete().eq('codigo', codigo);
     if(error){ toast('Erro ao excluir: '+error.message, 'err'); return; }
-    S.produtos.delete(codigo);
+    removerDoIndice(codigo);
     ui.selected.delete(codigo);
     toast('Produto excluído.', 'ok');
     render();
@@ -214,7 +262,7 @@
 
   function openProdutoModal(existing){
     const isEdit = !!existing;
-    const p = existing || { codigo: RO.nextCodigo(S.produtos), descricao:'', ncm:'', valor_compra:0, valor_venda:0, pct_venda:0, entrada:0, valor_entrada:0, parcelas:1, desconto:0, valor_com_desconto:0, estoque:null, estoque_min:5 };
+    const p = existing || { codigo: RO.nextCodigo(S.indice), descricao:'', ncm:'', valor_compra:0, valor_venda:0, pct_venda:0, entrada:0, valor_entrada:0, parcelas:1, desconto:0, valor_com_desconto:0, estoque:null, estoque_min:5 };
 
     const back = document.createElement('div');
     back.className = 'modal-backdrop';
@@ -270,13 +318,13 @@
         errBox.innerHTML = '<div class="alertbox danger">'+ICONS.warn+'<div>Código e descrição são obrigatórios.</div></div>';
         return;
       }
-      if(!isEdit && S.produtos.has(codigo)){
+      if(!isEdit && S.indice.has(codigo)){
         errBox.innerHTML = '<div class="alertbox danger">'+ICONS.warn+'<div>Já existe um produto com o código '+esc(codigo)+'.</div></div>';
         return;
       }
       if(!isEdit){
         let sameDesc = null;
-        S.produtos.forEach(other=>{ if(normName(other.descricao)===normName(descricao)) sameDesc = other; });
+        S.indice.forEach(other=>{ if(normName(other.descricao)===normName(descricao)) sameDesc = other; });
         if(sameDesc && !(await confirmar('Já existe um produto "'+sameDesc.descricao+'" (código '+sameDesc.codigo+'). Deseja cadastrar mesmo assim?', {perigo:false, confirmar:'Cadastrar mesmo assim'}))) return;
       }
       const valor_compra = parseFloat(back.querySelector('#p-compra').value)||0;
@@ -299,7 +347,7 @@
         ? await RO.sb.from('produtos').update(data).eq('codigo', codigo)
         : await RO.sb.from('produtos').insert(data);
       if(error){ errBox.innerHTML = '<div class="alertbox danger">'+ICONS.warn+'<div>Erro ao salvar: '+esc(error.message)+'</div></div>'; return; }
-      S.produtos.set(codigo, data);
+      atualizarIndice(data);
       toast(isEdit?'Produto atualizado.':'Produto cadastrado.', 'ok');
       close();
       render();
