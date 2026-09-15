@@ -14,6 +14,7 @@
   --danger:#B3412C;
   --danger-bg:#FBE7E2;
   --focus:#3c66c4;
+  --focus-ring:rgba(60,102,196,.18);
   --sidebar-w:236px;
   --radius-sm:10px;
   --radius-md:14px;
@@ -40,6 +41,7 @@
     --danger:#e28770;
     --danger-bg:#3a2018;
     --focus:#8fb2ff;
+    --focus-ring:rgba(143,178,255,.22);
     --shadow-sm:0 1px 2px rgba(0,0,0,.30), 0 1px 1px rgba(0,0,0,.22);
     --shadow-md:0 10px 30px rgba(0,0,0,.38), 0 2px 8px rgba(0,0,0,.28);
     --shadow-lg:0 28px 70px rgba(0,0,0,.55);
@@ -61,6 +63,7 @@
   --danger:#e28770;
   --danger-bg:#3a2018;
   --focus:#8fb2ff;
+  --focus-ring:rgba(143,178,255,.22);
   --shadow-sm:0 1px 2px rgba(0,0,0,.30), 0 1px 1px rgba(0,0,0,.22);
   --shadow-md:0 10px 30px rgba(0,0,0,.38), 0 2px 8px rgba(0,0,0,.28);
   --shadow-lg:0 28px 70px rgba(0,0,0,.55);
@@ -332,12 +335,20 @@ table.data th.sortable .sort-icon.asc{ transform:scaleY(-1); }
 .field.span3{ grid-column:1 / -1; }
 .field label{ font-size:12px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; }
 .field input, .field select, .field textarea{
-  border:1px solid var(--border); border-radius:8px; padding:9px 11px; font-size:13.5px;
+  border:1px solid var(--border); border-radius:var(--radius-sm); padding:9px 11px; font-size:13.5px;
   background:var(--surface); color:var(--ink); font-family:inherit;
+  transition:border-color .12s ease, box-shadow .12s ease;
 }
-.field input:focus, .field select:focus, .field textarea:focus{ border-color:var(--accent); }
+.field input:focus, .field select:focus, .field textarea:focus{
+  outline:none; border-color:var(--focus); box-shadow:0 0 0 3px var(--focus-ring);
+}
 .field .hint{ font-size:11.5px; color:var(--muted); }
 .field .err{ font-size:11.5px; color:var(--danger); font-weight:600; }
+
+.field input.otp-input{
+  font-size:22px; letter-spacing:.4em; text-align:center; font-variant-numeric:tabular-nums;
+  padding-left:14px;
+}
 
 .modal-backdrop{
   position:fixed; inset:0; background:rgba(20,22,12,.45); backdrop-filter:blur(4px); display:flex;
@@ -403,17 +414,22 @@ table.data th.sortable .sort-icon.asc{ transform:scaleY(-1); }
 }
 .auth-card{
   width:100%; max-width:380px; background:var(--surface); border:1px solid var(--border);
-  border-radius:14px; padding:30px 28px; box-shadow:0 20px 60px rgba(0,0,0,.10);
+  border-radius:var(--radius-lg); padding:30px 28px; box-shadow:var(--shadow-lg);
 }
 .auth-brand{ text-align:center; margin-bottom:22px; }
-.auth-brand .brand-name{ color:var(--ink); font-size:18px; }
-.auth-brand .brand-sub{ color:var(--muted); }
-.auth-tabs{ display:flex; gap:4px; margin-bottom:20px; background:var(--bg); border-radius:9px; padding:4px; }
-.auth-tabs button{
-  flex:1; border:none; background:transparent; padding:9px; border-radius:7px;
-  font-size:13px; font-weight:700; cursor:pointer; color:var(--muted); font-family:inherit;
+.auth-brand .brand-name{
+  color:var(--ink); font-size:18px; text-transform:uppercase; letter-spacing:.05em;
+  font-family:'Roboto Condensed','Aptos Narrow','Arial Narrow',sans-serif; font-weight:700;
 }
-.auth-tabs button.active{ background:var(--surface); color:var(--ink); box-shadow:0 1px 3px rgba(0,0,0,.12); }
+.auth-brand .brand-sub{ color:var(--muted); font-size:11px; margin-top:4px; letter-spacing:.04em; text-transform:uppercase; }
+.auth-brand .auth-title{ color:var(--ink); font-size:17px; font-weight:700; letter-spacing:-.01em; }
+.auth-tabs{ display:flex; gap:4px; margin-bottom:20px; background:var(--bg); border-radius:var(--radius-sm); padding:4px; }
+.auth-tabs button{
+  flex:1; border:none; background:transparent; padding:9px; border-radius:calc(var(--radius-sm) - 3px);
+  font-size:13px; font-weight:700; cursor:pointer; color:var(--muted); font-family:inherit;
+  transition:background .12s ease, color .12s ease, box-shadow .12s ease;
+}
+.auth-tabs button.active{ background:var(--surface); color:var(--ink); box-shadow:var(--shadow-sm); }
 .auth-card .field{ margin-bottom:14px; }
 .auth-card .btn.primary{ width:100%; justify-content:center; padding:10px; }
 

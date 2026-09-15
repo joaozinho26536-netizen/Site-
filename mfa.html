@@ -7,13 +7,13 @@
 <div class="auth-shell">
   <div class="auth-card">
     <div class="auth-brand">
-      <div class="brand-name" style="text-transform:uppercase; letter-spacing:.05em; font-family:'Roboto Condensed',sans-serif; font-weight:700;">Verificação em duas etapas</div>
-      <div class="brand-sub" style="font-size:11px; margin-top:4px; letter-spacing:.04em; text-transform:uppercase;">Ramos de Oliveira &middot; Sistema</div>
+      <div class="auth-title">Verificação em duas etapas</div>
+      <div class="brand-sub">Ramos de Oliveira &middot; Sistema</div>
     </div>
     <div id="mfa-error"></div>
     <p style="font-size:13px; color:var(--muted); margin:0 0 16px;">Digite o código de 6 dígitos gerado pelo seu aplicativo autenticador (Google Authenticator, Authy, etc).</p>
     <form id="form-mfa">
-      <div class="field"><label>Código</label><input id="mfa-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]*" required autofocus></div>
+      <div class="field"><label>Código</label><input id="mfa-code" class="otp-input" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]*" required autofocus></div>
       <button type="submit" class="btn primary" id="mfa-submit">Verificar</button>
     </form>
     <div style="text-align:center; margin-top:16px;">
