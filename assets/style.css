@@ -314,10 +314,17 @@ table.data th.sortable .sort-icon.asc{ transform:scaleY(-1); }
   table.data.mobile-cards, table.data.mobile-cards tbody,
   table.data.mobile-cards tr, table.data.mobile-cards td{ display:block; width:100%; }
   table.data.mobile-cards tbody tr{
+    position:relative;
     border:1px solid var(--border); border-radius:var(--radius-md); box-shadow:var(--shadow-sm);
     margin-bottom:10px; padding:4px 12px; background:var(--surface);
   }
   table.data.mobile-cards tbody tr:hover{ background:var(--surface); }
+  table.data.mobile-cards td.td-open{
+    position:absolute; top:-9px; right:-9px; width:auto; padding:5px; border-bottom:none;
+    background:var(--surface); border:1px solid var(--border); border-radius:7px; box-shadow:var(--shadow-sm);
+  }
+  table.data.mobile-cards td.td-open::before{ content:none; }
+  table.data.mobile-cards td.td-open svg{ width:12px; height:12px; display:block; }
   table.data.mobile-cards td{
     display:flex; align-items:center; justify-content:space-between; gap:12px;
     padding:8px 0; border-bottom:1px solid var(--border); text-align:right;

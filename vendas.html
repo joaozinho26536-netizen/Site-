@@ -441,7 +441,7 @@
                   <td class="num" data-label="Total">${fmtBRL(totalGeral)}</td>
                   <td data-label="Próximo pgto.">${proximoPagamento ? `<span class="badge ${vencido?'alert':'pending'}">${fmtDate(proximoPagamento)}</span>` : '—'}</td>
                   <td data-label="Status"><span class="badge ${quitado?'ok':'pending'}">${quitado?'Quitado':'Em aberto'}</span></td>
-                  <td style="text-align:right; color:var(--muted);">${ICONS.external}</td>
+                  <td class="td-open" style="text-align:right; color:var(--muted);">${ICONS.external}</td>
                 </tr>`;
               }).join('') : `<tr><td colspan="7"><div class="empty">${ICONS.file}<div>Nenhum pedido encontrado.</div></div></td></tr>`}
             </tbody>
