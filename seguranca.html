@@ -59,12 +59,12 @@
     if(factors.length){
       listaEl.innerHTML = `
         <div class="table-wrap" style="margin:14px 0;">
-          <table class="data">
+          <table class="data mobile-cards">
             <thead><tr><th>Nome</th><th>Ativado em</th><th></th></tr></thead>
             <tbody>
               ${factors.map(f=>`<tr>
-                <td>${esc(f.friendly_name || 'Aplicativo autenticador')}</td>
-                <td>${new Date(f.created_at).toLocaleDateString('pt-BR')}</td>
+                <td data-label="Nome">${esc(f.friendly_name || 'Aplicativo autenticador')}</td>
+                <td data-label="Ativado em">${new Date(f.created_at).toLocaleDateString('pt-BR')}</td>
                 <td><button class="iconbtn" data-unenroll="${esc(f.id)}" title="Desativar" aria-label="Desativar fator de autenticação">${ICONS.trash}</button></td>
               </tr>`).join('')}
             </tbody>
@@ -94,13 +94,13 @@
     if(error){ wrap.innerHTML = '<div class="empty">'+ICONS.warn+'<div>Erro ao carregar usuários: '+esc(error.message)+'</div></div>'; return; }
     wrap.innerHTML = `
       <div class="table-wrap">
-        <table class="data">
+        <table class="data mobile-cards">
           <thead><tr><th>Usuário</th><th>E-mail</th><th>Função</th></tr></thead>
           <tbody>
             ${usuarios.map(u=>`<tr>
-              <td>${esc(u.nome || '—')}</td>
-              <td>${esc(u.email)}</td>
-              <td>
+              <td data-label="Usuário">${esc(u.nome || '—')}</td>
+              <td data-label="E-mail">${esc(u.email)}</td>
+              <td data-label="Função">
                 <select data-user="${esc(u.user_id)}" ${u.user_id===session.user.id ? 'disabled title="Você não pode alterar seu próprio nível de acesso."' : ''}>
                   <option value="admin_chefe" ${u.role==='admin_chefe'?'selected':''}>Administrador chefe</option>
                   <option value="editor" ${u.role==='editor'?'selected':''}>Editor</option>

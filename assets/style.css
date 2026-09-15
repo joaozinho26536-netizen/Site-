@@ -295,6 +295,37 @@ table.data th.sortable:hover .sort-icon{ opacity:.65; }
 table.data th.sortable.active .sort-icon{ opacity:1; }
 table.data th.sortable .sort-icon.asc{ transform:scaleY(-1); }
 .rowactions{ display:flex; gap:6px; justify-content:flex-end; }
+
+/* Em telas estreitas, uma tabela marcada .mobile-cards vira uma pilha de
+   cards (uma linha = um card), em vez de rolagem horizontal apertada.
+   Cada <td> precisa de data-label="..." (mesmo texto do <th> da coluna)
+   pra virar o rótulo à esquerda do valor via ::before. */
+@media (max-width:640px){
+  table.data.mobile-cards{ min-width:0; }
+  table.data.mobile-cards thead{ display:none; }
+  table.data.mobile-cards, table.data.mobile-cards tbody,
+  table.data.mobile-cards tr, table.data.mobile-cards td{ display:block; width:100%; }
+  table.data.mobile-cards tbody tr{
+    border:1px solid var(--border); border-radius:var(--radius-md); box-shadow:var(--shadow-sm);
+    margin-bottom:10px; padding:4px 12px; background:var(--surface);
+  }
+  table.data.mobile-cards tbody tr:hover{ background:var(--surface); }
+  table.data.mobile-cards td{
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+    padding:8px 0; border-bottom:1px solid var(--border); text-align:right;
+  }
+  table.data.mobile-cards td:last-child{ border-bottom:none; }
+  table.data.mobile-cards td::before{
+    content:attr(data-label); font-size:11px; font-weight:700; text-transform:uppercase;
+    letter-spacing:.03em; color:var(--muted); text-align:left; flex:0 0 auto;
+  }
+  table.data.mobile-cards td:empty{ display:none; }
+  table.data.mobile-cards td.chk-col{ justify-content:flex-start; }
+  table.data.mobile-cards td.chk-col::before{ content:none; }
+  table.data.mobile-cards td:has(.rowactions){ padding-top:10px; }
+  table.data.mobile-cards td:has(.rowactions)::before{ content:none; }
+  table.data.mobile-cards .rowactions{ width:100%; justify-content:flex-end; }
+}
 .iconbtn{
   width:28px; height:28px; display:inline-flex; align-items:center; justify-content:center;
   border-radius:7px; border:1px solid var(--border); background:var(--surface); cursor:pointer; color:var(--ink);

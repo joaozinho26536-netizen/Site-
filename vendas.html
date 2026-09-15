@@ -414,19 +414,19 @@
 
       wrapInner.innerHTML = `
         <div class="table-wrap">
-          <table class="data">
+          <table class="data mobile-cards">
             <thead><tr>${RO.thSort('Nº','numero',pedidoUI,PED_LISTA_NUMERIC_KEYS)}${RO.thSort('Cliente','cliente',pedidoUI,PED_LISTA_NUMERIC_KEYS)}${RO.thSort('Data','data',pedidoUI,PED_LISTA_NUMERIC_KEYS)}${RO.thSort('Total','total',pedidoUI,PED_LISTA_NUMERIC_KEYS,'num')}${RO.thSort('Próximo pagamento','proximo',pedidoUI,PED_LISTA_NUMERIC_KEYS)}${RO.thSort('Status','status',pedidoUI,PED_LISTA_NUMERIC_KEYS)}<th></th></tr></thead>
             <tbody>
               ${pageItems.length ? pageItems.map(({p,totalGeral,quitado,clienteNome,proximoPagamento})=>{
                 const hoje = new Date(); hoje.setHours(0,0,0,0);
                 const vencido = proximoPagamento && proximoPagamento < hoje;
                 return `<tr class="pedrow" data-numero="${esc(p.numero)}" title="Abrir ficha do pedido">
-                  <td>${esc(p.numero)}</td>
-                  <td>${esc(clienteNome||'—')}</td>
-                  <td>${fmtDate(p.data_compra)}</td>
-                  <td class="num">${fmtBRL(totalGeral)}</td>
-                  <td>${proximoPagamento ? `<span class="badge ${vencido?'alert':'pending'}">${fmtDate(proximoPagamento)}</span>` : '—'}</td>
-                  <td><span class="badge ${quitado?'ok':'pending'}">${quitado?'Quitado':'Em aberto'}</span></td>
+                  <td data-label="Nº">${esc(p.numero)}</td>
+                  <td data-label="Cliente">${esc(clienteNome||'—')}</td>
+                  <td data-label="Data">${fmtDate(p.data_compra)}</td>
+                  <td class="num" data-label="Total">${fmtBRL(totalGeral)}</td>
+                  <td data-label="Próximo pgto.">${proximoPagamento ? `<span class="badge ${vencido?'alert':'pending'}">${fmtDate(proximoPagamento)}</span>` : '—'}</td>
+                  <td data-label="Status"><span class="badge ${quitado?'ok':'pending'}">${quitado?'Quitado':'Em aberto'}</span></td>
                   <td style="text-align:right; color:var(--muted);">${ICONS.external}</td>
                 </tr>`;
               }).join('') : `<tr><td colspan="7"><div class="empty">${ICONS.file}<div>Nenhum pedido encontrado.</div></div></td></tr>`}
@@ -486,7 +486,7 @@
           <dt>Próximo pagamento</dt><dd>${(()=>{ const prox = proximoPagamentoPedido(pedido); return prox ? fmtDate(prox) : '—'; })()}</dd>
         </dl>
         <div class="table-wrap" style="margin-top:16px;">
-          <table class="data">
+          <table class="data mobile-cards">
             <thead><tr><th>Produto</th><th>Uni.</th><th>Parcela</th><th class="num">Valor</th><th>Data pgto.</th><th class="num">Recebimento</th><th class="num">Saldo devedor</th><th></th></tr></thead>
             <tbody>
               ${(pedido.itens||[]).map((it,itIdx)=>{
@@ -497,17 +497,17 @@
                   const remanescente = remanescenteParcela(it.valor_parcela, p);
                   const pagamentos = pagamentosDaParcela(p);
                   return `<tr>
-                    <td>${pIdx===0?esc(it.descricao)+((it.produtos_extras&&it.produtos_extras.length)?'<div style="font-size:11px; color:var(--muted); font-weight:400; margin-top:2px;">+ '+it.produtos_extras.map(p=>esc(p.uni||1)+'x '+esc(p.descricao)).join(', ')+'</div>':''):''}</td>
-                    <td>${pIdx===0?esc(it.uni):''}</td>
-                    <td>${p.n}/${it.parcelas_qtd}</td>
-                    <td class="num">${fmtBRL(it.valor_parcela)}</td>
-                    <td>${p.data_pgto? fmtDate(p.data_pgto) : '<span class="badge pending">pendente</span>'}</td>
-                    <td class="num">
+                    <td data-label="Produto">${pIdx===0?esc(it.descricao)+((it.produtos_extras&&it.produtos_extras.length)?'<div style="font-size:11px; color:var(--muted); font-weight:400; margin-top:2px;">+ '+it.produtos_extras.map(p=>esc(p.uni||1)+'x '+esc(p.descricao)).join(', ')+'</div>':''):''}</td>
+                    <td data-label="Uni.">${pIdx===0?esc(it.uni):''}</td>
+                    <td data-label="Parcela">${p.n}/${it.parcelas_qtd}</td>
+                    <td class="num" data-label="Valor">${fmtBRL(it.valor_parcela)}</td>
+                    <td data-label="Data pgto.">${p.data_pgto? fmtDate(p.data_pgto) : '<span class="badge pending">pendente</span>'}</td>
+                    <td class="num" data-label="Recebimento">
                       ${fmtBRL(p.recebimento)}
                       ${pagamentos.length>1 ? `<div style="font-size:11px; color:var(--muted); font-weight:400;">${pagamentos.map(pg=>`${fmtBRL(pg.valor)}${pg.data?(' &middot; '+fmtDate(pg.data)):''}`).join('<br>')}</div>` : ''}
                       ${(p.desconto||0)>0 ? `<div style="font-size:11px; color:var(--success); font-weight:400;">desconto ${fmtBRL(p.desconto)}</div>` : ''}
                     </td>
-                    <td class="num">${fmtBRL(Math.max(saldo,0))}</td>
+                    <td class="num" data-label="Saldo devedor">${fmtBRL(Math.max(saldo,0))}</td>
                     <td>${remanescente>0.005 ? `<button class="btn ghost fp-pagar" data-item="${itIdx}" data-parc="${pIdx}" style="font-size:12px;">${(p.recebimento||0)>0||(p.desconto||0)>0?('+ Novo pagamento'):'Registrar pgto.'}</button>` : ''}</td>
                   </tr>`;
                 }).join('');
@@ -748,16 +748,16 @@
           </div>
           ${(it.produtos_extras&&it.produtos_extras.length) ? `<div style="font-size:11.5px; color:var(--muted); margin-top:4px;">No combo desta parcela: ${it.produtos_extras.map(p=>esc(p.uni||1)+'x '+esc(p.descricao)).join(', ')}</div>` : ''}
           <div class="table-wrap" style="margin-top:10px;">
-            <table class="data">
+            <table class="data mobile-cards">
               <thead><tr><th style="width:70px;">Parcela</th><th>Data pgto.</th><th class="num">Recebimento</th><th class="num">Saldo devedor</th></tr></thead>
               <tbody>
                 ${(it.parcelas||[]).map((p,pIdx)=>{
                   const pagamentos = pagamentosDaParcela(p);
                   return `
                   <tr>
-                    <td>${pIdx+1}/${it.parcelas_qtd}</td>
-                    <td><input type="date" class="ef-datapgto" data-it="${itIdx}" data-p="${pIdx}" value="${p.data_pgto||''}"></td>
-                    <td class="num">
+                    <td data-label="Parcela">${pIdx+1}/${it.parcelas_qtd}</td>
+                    <td data-label="Data pgto."><input type="date" class="ef-datapgto" data-it="${itIdx}" data-p="${pIdx}" value="${p.data_pgto||''}"></td>
+                    <td class="num" data-label="Recebimento">
                       <div style="display:flex; align-items:center; gap:4px; justify-content:flex-end;">
                         <input class="ef-recebimento" data-it="${itIdx}" data-p="${pIdx}" inputmode="decimal" value="${fmtNumBR(p.recebimento)}" style="text-align:right; width:100px;">
                         <button type="button" class="iconbtn ef-add-pagamento" data-it="${itIdx}" data-p="${pIdx}" title="Somar um novo pagamento a esta parcela" aria-label="Somar um novo pagamento a esta parcela">${ICONS.plus}</button>
@@ -765,7 +765,7 @@
                       <div class="ef-pagtos-list" data-it="${itIdx}" data-p="${pIdx}" style="text-align:right; margin-top:4px; font-size:11px; color:var(--muted);">${pagamentos.length>1 ? pagamentos.map(pg=>`${fmtBRL(pg.valor)}${pg.data?(' &middot; '+fmtDate(pg.data)):''}`).join('<br>') : ''}</div>
                       <div class="ef-desconto-txt" data-it="${itIdx}" data-p="${pIdx}" style="text-align:right; margin-top:4px; font-size:11px; color:var(--success);">${(p.desconto||0)>0 ? ('desconto '+fmtBRL(p.desconto)) : ''}</div>
                     </td>
-                    <td class="num ef-saldo" data-it="${itIdx}" data-p="${pIdx}">R$ 0,00</td>
+                    <td class="num ef-saldo" data-it="${itIdx}" data-p="${pIdx}" data-label="Saldo devedor">R$ 0,00</td>
                   </tr>`;
                 }).join('')}
               </tbody>

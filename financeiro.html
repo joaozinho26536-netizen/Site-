@@ -163,16 +163,16 @@
       <div class="card" style="margin-bottom:20px;">
         <div class="card-head"><h2>Relatório mensal</h2></div>
         <div class="table-wrap" id="fin-mensal-wrap">
-          <table class="data">
+          <table class="data mobile-cards">
             <thead><tr>${RO.thSort('Mês','mes',financeiroUI,FIN_NUMERIC_KEYS)}${RO.thSort('Pedidos','pedidos',financeiroUI,FIN_NUMERIC_KEYS,'num')}${RO.thSort('Vendas','vendas',financeiroUI,FIN_NUMERIC_KEYS,'num')}${RO.thSort('Custo','custo',financeiroUI,FIN_NUMERIC_KEYS,'num')}${RO.thSort('Lucro','lucro',financeiroUI,FIN_NUMERIC_KEYS,'num')}</tr></thead>
             <tbody>
               ${tableRows.length ? tableRows.map(([ym,m])=>`
                 <tr>
-                  <td>${new Date(ym+'-02').toLocaleDateString('pt-BR',{month:'long',year:'numeric'})}</td>
-                  <td class="num">${m.pedidos}</td>
-                  <td class="num">${fmtBRL(m.vendas)}</td>
-                  <td class="num">${fmtBRL(m.custo)}</td>
-                  <td class="num">${fmtBRL(m.vendas-m.custo)}</td>
+                  <td data-label="Mês">${new Date(ym+'-02').toLocaleDateString('pt-BR',{month:'long',year:'numeric'})}</td>
+                  <td class="num" data-label="Pedidos">${m.pedidos}</td>
+                  <td class="num" data-label="Vendas">${fmtBRL(m.vendas)}</td>
+                  <td class="num" data-label="Custo">${fmtBRL(m.custo)}</td>
+                  <td class="num" data-label="Lucro">${fmtBRL(m.vendas-m.custo)}</td>
                 </tr>`).join('') : `<tr><td colspan="5"><div class="empty">Sem dados ainda.</div></td></tr>`}
             </tbody>
           </table>
@@ -187,17 +187,17 @@
           </label>
         </div>
         <div class="table-wrap" id="fin-receber-wrap">
-          <table class="data">
+          <table class="data mobile-cards">
             <thead><tr>${RO.thSort('Cliente','cliente',receberUI,REC_NUMERIC_KEYS)}${RO.thSort('Pedido','numero',receberUI,REC_NUMERIC_KEYS,'num')}${RO.thSort('Parcela','n',receberUI,REC_NUMERIC_KEYS,'num')}${RO.thSort('Vencimento (estimado)','vencimento',receberUI,REC_NUMERIC_KEYS)}${RO.thSort('Valor','valor',receberUI,REC_NUMERIC_KEYS,'num')}<th>Situação</th></tr></thead>
             <tbody>
               ${receberPageItems.length ? receberPageItems.map(l=>`
                 <tr>
-                  <td>${esc(l.cliente)}</td>
-                  <td class="num">${l.numero}</td>
-                  <td class="num">${l.n}/${l.totalParcelas}</td>
-                  <td class="num">${l.vencimento ? fmtDate(l.vencimento) : '—'}</td>
-                  <td class="num">${fmtBRL(l.valor)}</td>
-                  <td>${l.vencida ? `<span class="badge alert">vencida há ${l.diasAtraso}d</span>` : '<span class="badge pending">a vencer</span>'}</td>
+                  <td data-label="Cliente">${esc(l.cliente)}</td>
+                  <td class="num" data-label="Pedido">${l.numero}</td>
+                  <td class="num" data-label="Parcela">${l.n}/${l.totalParcelas}</td>
+                  <td class="num" data-label="Vencimento">${l.vencimento ? fmtDate(l.vencimento) : '—'}</td>
+                  <td class="num" data-label="Valor">${fmtBRL(l.valor)}</td>
+                  <td data-label="Situação">${l.vencida ? `<span class="badge alert">vencida há ${l.diasAtraso}d</span>` : '<span class="badge pending">a vencer</span>'}</td>
                 </tr>`).join('') : `<tr><td colspan="6"><div class="empty">${ICONS.coins}<div>${receberUI.soVencidas ? 'Nenhuma parcela vencida.' : 'Nenhuma parcela pendente.'}</div></div></td></tr>`}
             </tbody>
           </table>
