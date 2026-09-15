@@ -27,7 +27,7 @@
 
   const S = { clientes: new Map(), produtos: new Map(), pedidos: new Map(), loaded:false };
   const top = document.getElementById('content');
-  top.innerHTML = '<div class="empty"><div class="spinner" style="margin:0 auto 10px;"></div>Carregando…</div>';
+  top.innerHTML = RO.skeletonTable(8);
   try{
     const [clientes, produtos, pedidos] = await Promise.all([RO.loadClientes(), RO.loadProdutos(), RO.loadPedidos()]);
     clientes.forEach(c=> S.clientes.set(c.codigo, c));

@@ -459,6 +459,24 @@ table.data th.sortable .sort-icon.asc{ transform:scaleY(-1); }
 }
 @keyframes spin{ to{ transform:rotate(360deg); } }
 
+/* ---------- skeleton loaders (lugar do spinner genérico durante o carregamento) ---------- */
+.skeleton{
+  background:linear-gradient(90deg, var(--border) 25%, var(--bg) 37%, var(--border) 63%);
+  background-size:400% 100%;
+  animation:skeleton-shimmer 1.4s ease infinite;
+  border-radius:var(--radius-sm);
+}
+@keyframes skeleton-shimmer{ 0%{ background-position:100% 50%; } 100%{ background-position:0 50%; } }
+.skeleton-kpi-row{ display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:22px; }
+@media (max-width:900px){ .skeleton-kpi-row{ grid-template-columns:repeat(2,1fr); } }
+@media (max-width:560px){ .skeleton-kpi-row{ grid-template-columns:1fr; } }
+.skeleton-kpi{ height:92px; border-radius:var(--radius-md); }
+.skeleton-kpi.skeleton-hero{ grid-column:span 2; }
+@media (max-width:560px){ .skeleton-kpi.skeleton-hero{ grid-column:1; } }
+.skeleton-table{ background:var(--surface); border-radius:var(--radius-md); box-shadow:var(--shadow-sm); padding:6px 18px; }
+.skeleton-row{ height:18px; margin:16px 0; }
+.skeleton-row:first-child{ width:60%; }
+
 .progress{ height:8px; border-radius:99px; background:var(--bg); border:1px solid var(--border); overflow:hidden; }
 .progress > div{ height:100%; background:var(--accent); transition:width .2s; }
 

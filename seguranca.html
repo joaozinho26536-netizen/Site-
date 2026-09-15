@@ -21,7 +21,7 @@
   const el = document.getElementById('content');
 
   async function render(){
-    el.innerHTML = '<div class="empty"><div class="spinner" style="margin:0 auto 10px;"></div>Carregando…</div>';
+    el.innerHTML = RO.skeletonTable(4);
     const { data, error } = await RO.sb.auth.mfa.listFactors();
     if(error){ el.innerHTML = '<div class="empty">'+ICONS.warn+'<div>Erro ao carregar: '+esc(error.message)+'</div></div>'; return; }
     const factors = (data.totp||[]).filter(f=>f.status==='verified');
@@ -89,7 +89,7 @@
   async function renderUsuarios(){
     const wrap = document.getElementById('usuarios-lista');
     if(!wrap) return;
-    wrap.innerHTML = '<div class="empty"><div class="spinner" style="margin:0 auto;"></div></div>';
+    wrap.innerHTML = RO.skeletonTable(3);
     const { data: usuarios, error } = await RO.sb.from('perfis').select('user_id,email,nome,role').order('created_at');
     if(error){ wrap.innerHTML = '<div class="empty">'+ICONS.warn+'<div>Erro ao carregar usuários: '+esc(error.message)+'</div></div>'; return; }
     wrap.innerHTML = `

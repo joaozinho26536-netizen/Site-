@@ -27,7 +27,7 @@
   const NUMERIC_KEYS = new Set(['codigo']);
 
   const el = document.getElementById('content');
-  el.innerHTML = '<div class="empty"><div class="spinner" style="margin:0 auto 10px;"></div>Carregando clientes…</div>';
+  el.innerHTML = RO.skeletonTable(8);
   try{
     (await RO.loadClientes()).forEach(c=> S.clientes.set(c.codigo, c));
     S.loaded = true;
