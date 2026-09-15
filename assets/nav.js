@@ -41,49 +41,51 @@ function renderNavHTML(active, isAdmin){
   ).join('');
 }
 
-function openSidebar(){
-  document.getElementById('sidebar').classList.add('open');
-  document.getElementById('sidebar-overlay').classList.add('open');
+function openNavMenu(){
+  document.getElementById('topnav').classList.add('open');
+  document.getElementById('navmenu-overlay').classList.add('open');
   const btn = document.getElementById('navburger');
   if(btn) btn.setAttribute('aria-expanded','true');
 }
-function closeSidebar(){
-  document.getElementById('sidebar').classList.remove('open');
-  document.getElementById('sidebar-overlay').classList.remove('open');
+function closeNavMenu(){
+  document.getElementById('topnav').classList.remove('open');
+  document.getElementById('navmenu-overlay').classList.remove('open');
   const btn = document.getElementById('navburger');
   if(btn) btn.setAttribute('aria-expanded','false');
 }
-function toggleSidebar(){
-  const isOpen = document.getElementById('sidebar').classList.contains('open');
-  if(isOpen) closeSidebar(); else openSidebar();
+function toggleNavMenu(){
+  const isOpen = document.getElementById('topnav').classList.contains('open');
+  if(isOpen) closeNavMenu(); else openNavMenu();
 }
 
-// Monta a casca da página (menu lateral + topbar + área de conteúdo) no início do
-// <body> e devolve os elementos que a própria página vai preencher.
+// Monta a casca da página (menu horizontal + topbar + área de conteúdo) no início
+// do <body> e devolve os elementos que a própria página vai preencher.
 // `perfil` (opcional): { role: 'admin_chefe'|'editor' } — controla quais abas
 // aparecem no menu (ver adminOnly em NAV).
 // Idempotente: se a casca já existe (chegamos aqui via navegação sem recarregar
 // a página, ver navegarPara mais abaixo), só atualiza o item ativo do menu e o
-// rótulo do papel — não recria sidebar/topbar do zero.
+// rótulo do papel — não recria o menu/topbar do zero.
 function mount(active, perfil){
   const isAdmin = !!(perfil && perfil.role === 'admin_chefe');
   const papelLabel = perfil ? (isAdmin ? 'Administrador chefe' : 'Editor') : 'v2.0 &middot; Supabase';
   if(!document.getElementById('shell')){
     document.body.insertAdjacentHTML('afterbegin', `
       <div id="shell">
-        <div class="sidebar-overlay" id="sidebar-overlay"></div>
-        <aside id="sidebar">
-          <div class="brand">
-            <div class="brand-name">Ramos de Oliveira</div>
-            <div class="brand-sub">Enxovais &middot; Sistema</div>
+        <div class="navmenu-overlay" id="navmenu-overlay"></div>
+        <header id="topnav">
+          <div class="topnav-inner">
+            <div class="brand">
+              <div class="brand-name">Ramos de Oliveira</div>
+              <div class="brand-sub">Enxovais &middot; Sistema</div>
+            </div>
+            <button type="button" class="iconbtn navburger" id="navburger" aria-label="Abrir menu" aria-expanded="false"><svg viewBox="0 0 20 20" fill="currentColor"><rect x="1.6" y="3.8" width="16.8" height="2.3" rx="1.15"/><rect x="1.6" y="8.85" width="16.8" height="2.3" rx="1.15"/><rect x="1.6" y="13.9" width="16.8" height="2.3" rx="1.15"/></svg></button>
+            <nav class="mainnav" id="mainnav"></nav>
+            <div class="topnav-foot"><span></span><button id="nav-logout" type="button">Sair</button></div>
           </div>
-          <nav class="mainnav" id="mainnav"></nav>
-          <div class="sidebar-foot"><span></span><button id="nav-logout" type="button">Sair</button></div>
-        </aside>
+        </header>
         <div id="main">
           <header class="topbar">
             <div class="topbar-left">
-              <button type="button" class="iconbtn navburger" id="navburger" aria-label="Abrir menu" aria-expanded="false"><svg viewBox="0 0 20 20" fill="currentColor"><rect x="1.6" y="3.8" width="16.8" height="2.3" rx="1.15"/><rect x="1.6" y="8.85" width="16.8" height="2.3" rx="1.15"/><rect x="1.6" y="13.9" width="16.8" height="2.3" rx="1.15"/></svg></button>
               <div>
                 <h1 id="pagetitle"></h1>
                 <div class="crumb" id="pagecrumb"></div>
@@ -97,17 +99,17 @@ function mount(active, perfil){
       <div class="toast-wrap" id="toasts"></div>
     `);
     const burger = document.getElementById('navburger');
-    if(burger) burger.onclick = toggleSidebar;
-    const overlay = document.getElementById('sidebar-overlay');
-    if(overlay) overlay.onclick = closeSidebar;
+    if(burger) burger.onclick = toggleNavMenu;
+    const overlay = document.getElementById('navmenu-overlay');
+    if(overlay) overlay.onclick = closeNavMenu;
     const mainnav = document.getElementById('mainnav');
-    if(mainnav) mainnav.addEventListener('click', (e)=>{ if(e.target.closest('a')) closeSidebar(); });
+    if(mainnav) mainnav.addEventListener('click', (e)=>{ if(e.target.closest('a')) closeNavMenu(); });
     const logoutBtn = document.getElementById('nav-logout');
     if(logoutBtn) logoutBtn.onclick = ()=> window.RO.logout();
     initRouter();
   }
   document.getElementById('mainnav').innerHTML = renderNavHTML(active, isAdmin);
-  const footSpan = document.querySelector('#shell .sidebar-foot span');
+  const footSpan = document.querySelector('#shell .topnav-foot span');
   if(footSpan) footSpan.innerHTML = papelLabel;
 }
 
@@ -232,5 +234,5 @@ function initRouter(){
   window.addEventListener('popstate', ()=> navegarPara(location.href, false));
 }
 
-window.RO_NAV = { ICONS, NAV, mount, setTitle, backHomeBtn, openSidebar, closeSidebar, toggleSidebar };
+window.RO_NAV = { ICONS, NAV, mount, setTitle, backHomeBtn, openNavMenu, closeNavMenu, toggleNavMenu };
 })();
