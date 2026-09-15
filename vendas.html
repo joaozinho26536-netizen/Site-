@@ -101,6 +101,45 @@
     S.produtos.forEach(p=>{ if(!found && RO.normName(p.descricao)===RO.normName(label)) found=p; });
     return found;
   }
+  // Produto digitado na Ficha de pedido que não existe no catálogo: cadastra
+  // automaticamente em `produtos`, usando o preço de venda informado na própria
+  // linha do pedido. Reaproveita se, entretanto, alguém já cadastrou o mesmo nome.
+  async function garantirProdutoCadastrado(descricaoDigitada, valorVenda){
+    const descricao = (descricaoDigitada||'').trim();
+    if(!descricao) return null;
+    let existente = null;
+    S.produtos.forEach(p=>{ if(!existente && RO.normName(p.descricao)===RO.normName(descricao)) existente = p; });
+    if(existente) return existente;
+    const codigo = RO.nextCodigo(S.produtos);
+    const venda = Number(valorVenda)||0;
+    const data = {
+      codigo, descricao: descricao.toUpperCase(), ncm: '',
+      valor_compra: 0, valor_venda: venda, pct_venda: 0,
+      entrada: 0, valor_entrada: 0, parcelas: 1, desconto: 0,
+      valor_com_desconto: venda, estoque: null, estoque_min: 5,
+    };
+    const { error } = await RO.sb.from('produtos').insert(data);
+    if(error) throw error;
+    S.produtos.set(codigo, data);
+    toast('Produto "'+data.descricao+'" cadastrado automaticamente (cód. '+codigo+').', 'ok');
+    return data;
+  }
+  // Percorre os itens (e os produtos do combo) do pedido em edição e cadastra
+  // no catálogo qualquer produto digitado que ainda não tenha código vinculado.
+  async function garantirProdutosDosItens(itens){
+    for(const it of itens){
+      if(!it.codigo_produto && it.descricao){
+        const prod = await garantirProdutoCadastrado(it.descricao, it.valor_unit);
+        if(prod){ it.codigo_produto = prod.codigo; it.descricao = prod.descricao; }
+      }
+      for(const extra of (it.produtos_extras||[])){
+        if(!extra.codigo_produto && extra.descricao){
+          const prod = await garantirProdutoCadastrado(extra.descricao, extra.valor_unit);
+          if(prod){ extra.codigo_produto = prod.codigo; extra.descricao = prod.descricao; }
+        }
+      }
+    }
+  }
   function abrirSeletorData(dataAtual, onEscolher){
     const hoje = new Date();
     const state = { ano: dataAtual ? dataAtual.getFullYear() : hoje.getFullYear(), mes: dataAtual ? dataAtual.getMonth()+1 : null };
@@ -946,6 +985,12 @@
         it.produtoLabel = e.target.value;
         const prod = findProdutoByLabel(e.target.value);
         if(prod){ it.codigo_produto = prod.codigo; it.descricao = prod.descricao; it.valor_unit = Number(prod.valor_venda)||0; it.valor_custo = Number(prod.valor_compra)||0; }
+        else{
+          // Produto não encontrado no catálogo: guarda o texto digitado para
+          // cadastrar automaticamente ao emitir o pedido, com o preço de venda
+          // que for informado no campo "Valor unit." desta linha.
+          it.codigo_produto = ''; it.descricao = e.target.value.trim(); it.valor_unit = 0; it.valor_custo = 0;
+        }
         recalcRow(idx); renderItensRows();
       });
       body.querySelectorAll('.np-uni').forEach(inp=> inp.oninput = (e)=>{ pedidoUI.novoItens[+e.target.dataset.idx].uni = parseFloat(e.target.value)||1; recalcRow(+e.target.dataset.idx); updateTotal(); });
@@ -969,6 +1014,7 @@
         extra.produtoLabel = e.target.value;
         const prod = findProdutoByLabel(e.target.value);
         if(prod){ extra.codigo_produto = prod.codigo; extra.descricao = prod.descricao; extra.valor_unit = Number(prod.valor_venda)||0; }
+        else{ extra.codigo_produto = ''; extra.descricao = e.target.value.trim(); extra.valor_unit = 0; }
         recalcRow(idx); renderItensRows();
       });
       body.querySelectorAll('.npx-uni').forEach(inp=> inp.oninput = (e)=>{
@@ -1007,6 +1053,14 @@
       const clienteLabel = document.getElementById('np-cliente').value.trim();
       const cliente = findClienteByLabel(clienteLabel);
       if(!cliente){ errBox.innerHTML = '<div class="alertbox danger">'+ICONS.warn+'<div>Selecione um cliente válido da lista.</div></div>'; toast('Erro no salvamento', 'err'); return; }
+      try{
+        await garantirProdutosDosItens(pedidoUI.novoItens);
+      }catch(e){
+        console.error('Erro ao cadastrar produto automaticamente:', e);
+        errBox.innerHTML = '<div class="alertbox danger">'+ICONS.warn+'<div>Erro ao cadastrar produto novo: '+esc((e&&e.message)||String(e))+'</div></div>';
+        toast('Erro no salvamento', 'err');
+        return;
+      }
       const itensValidos = pedidoUI.novoItens.filter(it=>it.codigo_produto);
       if(itensValidos.length===0){ errBox.innerHTML = '<div class="alertbox danger">'+ICONS.warn+'<div>Adicione ao menos um produto válido.</div></div>'; toast('Erro no salvamento', 'err'); return; }
 
