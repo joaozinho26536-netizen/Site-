@@ -1,5 +1,5 @@
 /* ============================================================
-   RAMOS DE OLIVEIRA — menu lateral e estrutura de página compartilhada
+   RAMOS DE OLIVEIRA — menu do topo e estrutura de página compartilhada
    ============================================================ */
 (function(){
 "use strict";
@@ -125,12 +125,12 @@ function backHomeBtn(){
 /* ============================================================
    Navegação sem recarregar a página inteira (SPA leve)
    ------------------------------------------------------------
-   Ao clicar num link para outra tela do sistema (menu lateral, botão
+   Ao clicar num link para outra tela do sistema (menu do topo, botão
    "Início", atalhos do painel), em vez do navegador descartar tudo e
    recarregar HTML/CSS/fontes/JS do zero, buscamos só o HTML da página de
    destino, executamos o script dela e trocamos apenas o conteúdo — o menu
-   lateral e o topo continuam montados. Um clique direto na URL ou um F5
-   continua fazendo o carregamento normal (nada muda nesse caso).
+   do topo continua montado. Um clique direto na URL ou um F5 continua
+   fazendo o carregamento normal (nada muda nesse caso).
    ============================================================ */
 const PAGE_FILES = new Set(NAV.map(n=>n.href));
 const injectedPageStyles = new Set();
@@ -169,7 +169,7 @@ async function navegarPara(href, push){
   const file = resolvePageFile(href);
   if(!file){ window.location.href = href; return; }
   if(await assetsMudaram()){ window.location.href = href; return; }
-  closeSidebar();
+  closeNavMenu();
   // remove elementos que uma página anterior tenha inserido fora do próprio
   // #content (ex.: a barra de sub-abas de vendas.html)
   document.querySelectorAll('[data-pjax-extra]').forEach(n=> n.remove());
