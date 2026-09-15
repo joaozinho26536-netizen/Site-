@@ -53,7 +53,7 @@
     const semNcm = list.filter(p=>!p.ncm).length;
     const baixoEstoque = Array.from(S.produtos.values()).filter(estoqueBaixo);
 
-    const headerCells = ['<th class="chk-col"><input type="checkbox" id="prod-check-all"></th>', RO.thSort('Cód.','codigo',ui,NUMERIC_KEYS)];
+    const headerCells = ['<th class="chk-col"><input type="checkbox" id="prod-check-all" aria-label="Selecionar todos"></th>', RO.thSort('Cód.','codigo',ui,NUMERIC_KEYS)];
     if(ui.cols.foto) headerCells.push('<th>Foto</th>');
     headerCells.push(RO.thSort('Descrição','descricao',ui,NUMERIC_KEYS));
     if(ui.cols.ncm) headerCells.push(RO.thSort('NCM','ncm',ui,NUMERIC_KEYS));
@@ -102,7 +102,7 @@
             <tbody>
               ${pageItems.length ? pageItems.map(p=>`
                 <tr>
-                  <td class="chk-col"><input type="checkbox" class="prod-check" value="${esc(p.codigo)}" ${ui.selected.has(p.codigo)?'checked':''}></td>
+                  <td class="chk-col"><input type="checkbox" class="prod-check" value="${esc(p.codigo)}" ${ui.selected.has(p.codigo)?'checked':''} aria-label="Selecionar ${esc(p.descricao||'produto')}"></td>
                   <td>${esc(p.codigo)}</td>
                   ${ui.cols.foto?`<td>${p.imagem ? `<img src="${esc(p.imagem)}" alt="" style="width:36px; height:36px; object-fit:contain; border-radius:6px; border:1px solid var(--border); background:#fff;">` : ''}</td>`:''}
                   <td>${esc(p.descricao)}</td>
@@ -112,8 +112,8 @@
                   ${ui.cols.lucro?`<td class="num">${fmtBRL((Number(p.valor_venda)||0)-(Number(p.valor_compra)||0))}</td>`:''}
                   ${ui.cols.estoque?`<td class="num">${estoqueControlado(p) ? (estoqueBaixo(p) ? `<span class="badge alert">${esc(p.estoque)} un.</span>` : (p.estoque+' un.')) : '<span class="badge neutral">não controlado</span>'}</td>`:''}
                   <td><div class="rowactions">
-                    <button class="iconbtn" data-edit="${esc(p.codigo)}" title="Editar">${ICONS.edit}</button>
-                    <button class="iconbtn" data-del="${esc(p.codigo)}" title="Excluir">${ICONS.trash}</button>
+                    <button class="iconbtn" data-edit="${esc(p.codigo)}" title="Editar" aria-label="Editar produto">${ICONS.edit}</button>
+                    <button class="iconbtn" data-del="${esc(p.codigo)}" title="Excluir" aria-label="Excluir produto">${ICONS.trash}</button>
                   </div></td>
                 </tr>`).join('') : `<tr><td colspan="${headerCells.length}"><div class="empty">${ICONS.box}<div>Nenhum produto encontrado.</div></div></td></tr>`}
             </tbody>
@@ -210,7 +210,7 @@
     back.className = 'modal-backdrop';
     back.innerHTML = `
       <div class="modal">
-        <div class="modal-head"><h3>${isEdit?'Editar produto':'Novo produto'}</h3><button class="iconbtn" id="pm-close">&times;</button></div>
+        <div class="modal-head"><h3>${isEdit?'Editar produto':'Novo produto'}</h3><button class="iconbtn" id="pm-close" aria-label="Fechar">&times;</button></div>
         <div class="modal-body">
           <div id="pm-error"></div>
           ${p.imagem ? `<div style="text-align:center; margin-bottom:14px;"><img src="${esc(p.imagem)}" alt="" style="max-width:140px; max-height:140px; object-fit:contain; border-radius:8px; border:1px solid var(--border); background:#fff;"></div>` : ''}
