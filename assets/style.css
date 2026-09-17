@@ -273,7 +273,19 @@ nav.mainnav{ display:flex; flex-direction:row; align-items:center; gap:2px; flex
 .rankvalue{ font-size:13px; font-weight:700; text-align:right; flex:0 0 auto; font-variant-numeric:tabular-nums; }
 .ranksub{ font-size:11px; font-weight:400; color:var(--muted); margin-top:1px; }
 
-.card{ background:var(--surface); border-radius:var(--radius-md); box-shadow:var(--shadow-sm); }
+/* .card: anel em degradê sutil (cores da marca) em vez de borda lisa —
+   truque de duplo background (padding-box + border-box) com borda
+   transparente, então nenhum HTML precisou mudar (inspirado no padrão de
+   "gradient border card" do uiverse.io/galaxy, Cards/). */
+.card{
+  background:
+    linear-gradient(var(--surface), var(--surface)) padding-box,
+    linear-gradient(135deg, var(--accent-light), var(--accent) 45%, var(--accent-dark)) border-box;
+  border:1px solid transparent;
+  border-radius:var(--radius-md); box-shadow:var(--shadow-sm);
+  transition:box-shadow .2s var(--ease-out-3, cubic-bezier(0,0,.3,1)), transform .2s var(--ease-spring-3, cubic-bezier(.34,1.56,.64,1));
+}
+.card:hover{ box-shadow:var(--shadow-md); transform:translateY(-2px); }
 .card-head{
   display:flex; align-items:center; justify-content:space-between; gap:12px;
   padding:16px 18px; border-bottom:1px solid var(--border);
@@ -426,10 +438,14 @@ table.data th.sortable .sort-icon.asc{ transform:scaleY(-1); }
 .field input, .field select, .field textarea{
   border:1px solid var(--border); border-radius:var(--radius-sm); padding:9px 11px; font-size:13.5px;
   background:var(--surface); color:var(--ink); font-family:inherit;
-  transition:border-color .12s var(--ease-out-3, cubic-bezier(0,0,.3,1)), box-shadow .12s var(--ease-out-3, cubic-bezier(0,0,.3,1));
+  transition:border-color .15s var(--ease-out-3, cubic-bezier(0,0,.3,1)), box-shadow .15s var(--ease-out-3, cubic-bezier(0,0,.3,1)), transform .15s var(--ease-out-3, cubic-bezier(0,0,.3,1));
 }
+/* Foco com brilho em duas camadas (anel + halo suave) em vez de um único
+   contorno chapado — mesma cor de sempre (--focus), só com mais profundidade. */
 .field input:focus, .field select:focus, .field textarea:focus{
-  outline:none; border-color:var(--focus); box-shadow:0 0 0 3px var(--focus-ring);
+  outline:none; border-color:var(--focus);
+  box-shadow:0 0 0 3px var(--focus-ring), 0 0 18px -4px var(--focus-ring);
+  transform:translateY(-1px);
 }
 .field .hint{ font-size:11.5px; color:var(--muted); }
 .field .err{ font-size:11.5px; color:var(--danger); font-weight:600; }
@@ -453,6 +469,49 @@ input[type="checkbox"]:checked::after{
 }
 input[type="checkbox"]:focus-visible{ outline:2px solid var(--focus); outline-offset:2px; }
 input[type="checkbox"]:disabled{ opacity:.5; cursor:not-allowed; }
+
+/* ---------- toggle switch (para filtros liga/desliga — uso genérico,
+   diferente do checkbox, que é pra seleção múltipla). Inspirado em
+   uiverse.io/galaxy, Toggle-switches/vinodjangid07_*, adaptado com as
+   cores da marca. Marcação: <label class="switch"><input type="checkbox">
+   <span class="switch-track"></span></label> ---------- */
+.switch{ position:relative; display:inline-flex; align-items:center; cursor:pointer; flex:0 0 auto; }
+.switch input{ position:absolute; opacity:0; width:1px; height:1px; }
+.switch-track{
+  width:38px; height:22px; border-radius:99px; background:var(--border);
+  position:relative; flex:0 0 auto;
+  transition:background .2s var(--ease-out-3, cubic-bezier(0,0,.3,1));
+}
+.switch-track::after{
+  content:''; position:absolute; top:2px; left:2px; width:18px; height:18px;
+  border-radius:50%; background:#fff; box-shadow:var(--shadow-sm);
+  transition:transform .25s var(--ease-spring-3, cubic-bezier(.34,1.56,.64,1));
+}
+.switch input:checked ~ .switch-track{ background:var(--accent); }
+.switch input:checked ~ .switch-track::after{ transform:translateX(16px); }
+.switch input:focus-visible ~ .switch-track{ outline:2px solid var(--focus); outline-offset:2px; }
+.switch input:disabled ~ .switch-track{ opacity:.5; cursor:not-allowed; }
+
+/* Variante do switch usada no header pra tema claro/escuro — maior, com
+   sol/lua fixos nas pontas da trilha em vez de ícone único trocando. */
+.theme-switch{ position:relative; display:inline-flex; align-items:center; cursor:pointer; }
+.theme-switch input{ position:absolute; opacity:0; width:1px; height:1px; }
+.theme-switch-track{
+  display:flex; align-items:center; justify-content:space-between;
+  width:52px; height:26px; padding:0 6px; border-radius:99px;
+  background:rgba(255,255,255,.14); border:1px solid rgba(255,255,255,.35);
+  position:relative;
+  transition:background .2s var(--ease-out-3, cubic-bezier(0,0,.3,1));
+}
+.theme-switch-track svg{ width:12px; height:12px; color:rgba(255,255,255,.8); position:relative; z-index:1; }
+.theme-switch-thumb{
+  position:absolute; top:2px; left:2px; width:20px; height:20px; border-radius:50%;
+  background:#fff; box-shadow:var(--shadow-sm);
+  transition:transform .3s var(--ease-spring-3, cubic-bezier(.34,1.56,.64,1));
+}
+.theme-switch input:checked ~ .theme-switch-track{ background:rgba(0,0,0,.28); }
+.theme-switch input:checked ~ .theme-switch-track .theme-switch-thumb{ transform:translateX(26px); }
+.theme-switch input:focus-visible ~ .theme-switch-track{ outline:2px solid #fff; outline-offset:2px; }
 
 .field input.otp-input{
   font-size:22px; letter-spacing:.4em; text-align:center; font-variant-numeric:tabular-nums;
