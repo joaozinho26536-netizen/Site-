@@ -110,8 +110,11 @@ function mount(active, perfil){
         <header id="topnav">
           <div class="topnav-inner">
             <div class="brand">
-              <div class="brand-name">Ramos de Oliveira</div>
-              <div class="brand-sub">Enxovais &middot; Sistema</div>
+              <img class="brand-icon" src="assets/img/logo-icon-white.png?v=1" alt="" width="30" height="28">
+              <div>
+                <div class="brand-name">Ramos de Oliveira</div>
+                <div class="brand-sub">Enxovais &middot; Sistema</div>
+              </div>
             </div>
             <button type="button" class="iconbtn navburger" id="navburger" aria-label="Abrir menu" aria-expanded="false"><svg viewBox="0 0 20 20" fill="currentColor"><rect x="1.6" y="3.8" width="16.8" height="2.3" rx="1.15"/><rect x="1.6" y="8.85" width="16.8" height="2.3" rx="1.15"/><rect x="1.6" y="13.9" width="16.8" height="2.3" rx="1.15"/></svg></button>
             <nav class="mainnav" id="mainnav"></nav>
