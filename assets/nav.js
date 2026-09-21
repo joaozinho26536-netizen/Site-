@@ -49,12 +49,13 @@ function alternarTema(){
   atualizarBotaoTema();
 }
 function atualizarBotaoTema(){
-  const btn = document.getElementById('theme-toggle');
-  if(!btn) return;
+  const input = document.getElementById('theme-toggle');
+  const label = document.getElementById('theme-toggle-label');
+  if(!input || !label) return;
   const escuro = temaEfetivo()==='dark';
-  btn.innerHTML = escuro ? ICONS.sun : ICONS.moon;
-  btn.setAttribute('aria-label', escuro ? 'Mudar para tema claro' : 'Mudar para tema escuro');
-  btn.setAttribute('title', escuro ? 'Mudar para tema claro' : 'Mudar para tema escuro');
+  input.checked = escuro;
+  label.setAttribute('aria-label', escuro ? 'Mudar para tema claro' : 'Mudar para tema escuro');
+  label.title = escuro ? 'Mudar para tema claro' : 'Mudar para tema escuro';
 }
 aplicarTema(temaEfetivo());
 
@@ -110,14 +111,24 @@ function mount(active, perfil){
         <header id="topnav">
           <div class="topnav-inner">
             <div class="brand">
-              <div class="brand-name">Ramos de Oliveira</div>
-              <div class="brand-sub">Enxovais &middot; Sistema</div>
+              <img class="brand-icon" src="assets/img/logo-icon-white.png?v=1" alt="" width="30" height="28">
+              <div>
+                <div class="brand-name">Ramos de Oliveira</div>
+                <div class="brand-sub">Enxovais &middot; Sistema</div>
+              </div>
             </div>
             <button type="button" class="iconbtn navburger" id="navburger" aria-label="Abrir menu" aria-expanded="false"><svg viewBox="0 0 20 20" fill="currentColor"><rect x="1.6" y="3.8" width="16.8" height="2.3" rx="1.15"/><rect x="1.6" y="8.85" width="16.8" height="2.3" rx="1.15"/><rect x="1.6" y="13.9" width="16.8" height="2.3" rx="1.15"/></svg></button>
             <nav class="mainnav" id="mainnav"></nav>
             <div class="topnav-foot">
               <span></span>
-              <button type="button" class="iconbtn" id="theme-toggle"></button>
+              <label class="theme-switch" id="theme-toggle-label">
+                <input type="checkbox" id="theme-toggle" role="switch">
+                <span class="theme-switch-track">
+                  <span class="theme-switch-icon">${ICONS.sun}</span>
+                  <span class="theme-switch-icon">${ICONS.moon}</span>
+                  <span class="theme-switch-thumb"></span>
+                </span>
+              </label>
               <button id="nav-logout" type="button">Sair</button>
             </div>
           </div>
@@ -145,8 +156,8 @@ function mount(active, perfil){
     if(mainnav) mainnav.addEventListener('click', (e)=>{ if(e.target.closest('a')) closeNavMenu(); });
     const logoutBtn = document.getElementById('nav-logout');
     if(logoutBtn) logoutBtn.onclick = ()=> window.RO.logout();
-    const themeBtn = document.getElementById('theme-toggle');
-    if(themeBtn) themeBtn.onclick = alternarTema;
+    const themeInput = document.getElementById('theme-toggle');
+    if(themeInput) themeInput.onchange = alternarTema;
     initRouter();
   }
   atualizarBotaoTema();
