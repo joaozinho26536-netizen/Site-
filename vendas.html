@@ -905,16 +905,16 @@
           if(e.pointerType==='mouse' && e.button!==0) return;
           e.preventDefault();
           const tbody = card.querySelector(`#ef-parcelas-body-${itIdx}`);
+          const scrollEl = back.querySelector('.modal-body');
           const rows = Array.from(tbody.querySelectorAll('.ef-parcela-row'));
           const row = handle.closest('.ef-parcela-row');
           const fromIdx = rows.indexOf(row);
-          let overIdx = fromIdx, before = true;
+          let overIdx = fromIdx, before = true, lastY = e.clientY, rafId = null;
           row.classList.add('ef-dragging');
           try{ handle.setPointerCapture(e.pointerId); }catch(err){}
 
           function limparIndicadores(){ rows.forEach(r=> r.classList.remove('ef-drop-before','ef-drop-after')); }
-          function onMove(ev){
-            const y = ev.clientY;
+          function atualizarAlvo(y){
             let alvo = rows.find(r=>{ const rc = r.getBoundingClientRect(); return y>=rc.top && y<=rc.bottom; });
             if(!alvo) alvo = y < rows[0].getBoundingClientRect().top ? rows[0] : rows[rows.length-1];
             overIdx = rows.indexOf(alvo);
@@ -923,7 +923,28 @@
             limparIndicadores();
             alvo.classList.add(before ? 'ef-drop-before' : 'ef-drop-after');
           }
+          // Perto da borda de cima/baixo da área visível (o modal-body, que
+          // rola por dentro), a página começa a rolar sozinha enquanto o
+          // ponteiro fica parado ali — por isso um loop de animação em vez de
+          // só reagir a pointermove, que não dispara com o ponteiro parado.
+          const BORDA = 48, VELOCIDADE_MAX = 16;
+          function loop(){
+            if(scrollEl){
+              const rc = scrollEl.getBoundingClientRect();
+              let delta = 0;
+              if(lastY < rc.top + BORDA) delta = -VELOCIDADE_MAX * (1 - Math.max(0, lastY-rc.top)/BORDA);
+              else if(lastY > rc.bottom - BORDA) delta = VELOCIDADE_MAX * (1 - Math.max(0, rc.bottom-lastY)/BORDA);
+              if(delta) scrollEl.scrollTop += delta;
+            }
+            atualizarAlvo(lastY);
+            rafId = requestAnimationFrame(loop);
+          }
+          atualizarAlvo(lastY);
+          rafId = requestAnimationFrame(loop);
+
+          function onMove(ev){ lastY = ev.clientY; }
           function onUp(ev){
+            cancelAnimationFrame(rafId);
             document.removeEventListener('pointermove', onMove);
             document.removeEventListener('pointerup', onUp);
             document.removeEventListener('pointercancel', onUp);
