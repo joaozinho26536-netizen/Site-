@@ -257,3 +257,27 @@ test('rerenderKeepingFocus: uma chamada antiga que resolve DEPOIS de uma mais no
     delete global.document;
   }
 });
+
+test('rerenderKeepingFocus: se o usuário digitar mais texto ENQUANTO uma única busca está voando, o cursor não pode ficar preso numa posição antiga (teste de regressão)', async () => {
+  // Digitação mais devagar (pausas maiores que o debounce): cada tecla dispara
+  // sua própria busca, sem sobreposição de chamadas (diferente do teste acima).
+  // Mesmo assim, se o usuário digitar MAIS uma letra enquanto a única busca em
+  // andamento ainda não terminou, a posição numérica do cursor capturada no
+  // início fica desatualizada em relação ao valor novo (mais comprido) —
+  // restaurar essa posição antiga embaralha o texto já digitado depois.
+  const campo = {
+    id: 'campo-teste-2', value: 'a', selectionStart: 1, selectionEnd: 1,
+    focus(){}, setSelectionRange(a,b){ this.selectionStart = a; this.selectionEnd = b; },
+  };
+  global.document = { activeElement: campo, getElementById: (id)=> id===campo.id ? campo : null };
+  try{
+    const chamada = RO.rerenderKeepingFocus(()=> new Promise(r=>setTimeout(r, 60)));
+    await new Promise(r=>setTimeout(r, 10));
+    campo.value = 'ab'; campo.selectionStart = 2; campo.selectionEnd = 2; // usuário digitou mais uma letra durante o await
+    await chamada;
+    assert.equal(campo.selectionStart, 2, 'o cursor deve terminar no fim do valor novo, não na posição antiga capturada antes da digitação seguinte');
+    assert.equal(campo.value, 'ab');
+  }finally{
+    delete global.document;
+  }
+});
