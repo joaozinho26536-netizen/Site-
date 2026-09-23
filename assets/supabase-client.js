@@ -342,24 +342,32 @@ function remanescenteParcela(valorParcela, p){
   return Math.max(0, (Number(valorParcela)||0) - (Number(p.recebimento)||0) - (Number(p.desconto)||0));
 }
 function pedidoTotais(pedido){
-  const totalGeral = (pedido.itens||[]).reduce((s,it)=> s + (Number(it.valor_venda)||0)*(Number(it.uni)||1), 0);
-  const totalRecebidoParcelas = (pedido.itens||[]).reduce((s,it)=> s + (it.parcelas||[]).reduce((s2,p)=>s2+(Number(p.recebimento)||0),0), 0);
-  const totalDesconto = (pedido.itens||[]).reduce((s,it)=> s + (it.parcelas||[]).reduce((s2,p)=>s2+(Number(p.desconto)||0),0), 0);
+  const itens = pedido.itens||[];
+  const totalGeral = itens.reduce((s,it)=> s + (Number(it.valor_venda)||0)*(Number(it.uni)||1), 0);
+  const totalRecebidoParcelas = itens.reduce((s,it)=> s + (it.parcelas||[]).reduce((s2,p)=>s2+(Number(p.recebimento)||0),0), 0);
+  const totalDesconto = itens.reduce((s,it)=> s + (it.parcelas||[]).reduce((s2,p)=>s2+(Number(p.desconto)||0),0), 0);
   const totalRecebido = totalRecebidoParcelas + (Number(pedido.valor_entrada)||0);
-  // Saldo devedor e "quitado" vêm direto de cada parcela, não de uma
-  // comparação de totais — um valor de entrada grande (ou desconto) podia
-  // fechar a soma geral mesmo com parcelas de verdade ainda pendentes,
-  // fazendo o pedido aparecer como "Quitado" estando na verdade em aberto.
-  let saldoDevedor = 0, todasQuitadas = true, temParcela = false;
-  (pedido.itens||[]).forEach(it=>{
-    (it.parcelas||[]).forEach(p=>{
-      temParcela = true;
-      const rem = remanescenteParcela(it.valor_parcela, p);
-      saldoDevedor += rem;
-      if(rem > 0.005) todasQuitadas = false;
-    });
+  // Saldo devedor e "quitado" são calculados por PRODUTO, não por parcela
+  // isolada nem pela soma geral do pedido: um produto é considerado pago
+  // quando a soma do que foi recebido + descontado em TODAS as parcelas
+  // DELE atinge o valor total desse produto — mesmo que o valor tenha
+  // sido distribuído de forma desigual entre as parcelas (uma parcela
+  // paga a menos, compensada por outra parcela do mesmo produto paga a
+  // mais). Isso resolve dois problemas ao mesmo tempo: uma parcela
+  // realmente pendente não fica "escondida" só porque outro PRODUTO do
+  // mesmo pedido foi pago com folga (continua contando contra o saldo);
+  // e um valor de entrada grande — que não pertence a nenhum produto
+  // específico — continua não podendo mascarar uma parcela pendente,
+  // porque a entrada nunca entra nessa conta por produto (ver teste de
+  // regressão "entrada grande não deve mascarar parcela").
+  let saldoDevedor = 0;
+  itens.forEach(it=>{
+    const itemTotal = (Number(it.valor_venda)||0) * (Number(it.uni)||1);
+    const itemRecebido = (it.parcelas||[]).reduce((s,p)=> s + (Number(p.recebimento)||0) + (Number(p.desconto)||0), 0);
+    saldoDevedor += Math.max(0, itemTotal - itemRecebido);
   });
-  const quitado = temParcela && todasQuitadas;
+  const temParcela = itens.some(it=> (it.parcelas||[]).length>0);
+  const quitado = temParcela && saldoDevedor <= 0.005;
   return { totalGeral, totalRecebido, totalDesconto, saldoDevedor, quitado };
 }
 // Lista achatada de todas as parcelas com saldo pendente, em todos os pedidos —
