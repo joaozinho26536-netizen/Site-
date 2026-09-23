@@ -177,10 +177,16 @@ function wireSortHeaders(container, ui, numericKeys, rerenderFn){
 // Quando renderFn depende de rede (busca no servidor, por exemplo), digitar
 // em rajadas — pausa, mais texto, pausa de novo — dispara uma chamada desta
 // função por pausa, e cada uma tem sua própria viagem de ida-e-volta até o
-// servidor. Sem controle, uma chamada mais ANTIGA que termine DEPOIS de uma
-// mais NOVA reaplicaria a posição do cursor capturada lá atrás — o cursor
-// "pula pra trás" no meio do texto que o usuário já digitou depois. O token
-// garante que só a chamada mais recente tem permissão de restaurar o foco.
+// servidor. Duas armadilhas distintas aqui:
+// 1) Sem controle, uma chamada mais ANTIGA que termine DEPOIS de uma mais
+//    NOVA reaplicaria a posição do cursor capturada lá atrás — o token
+//    garante que só a chamada mais recente tem permissão de restaurar o foco.
+// 2) Mesmo numa única chamada (sem sobreposição), se o usuário digitar mais
+//    caracteres ENQUANTO o await de renderFn() está em andamento, a posição
+//    numérica capturada no início fica desatualizada em relação ao valor
+//    novo (mais comprido) do campo — restaurar essa posição antiga embaralha
+//    o texto. Por isso guardamos se o cursor estava no FIM do valor antigo;
+//    se estava, restauramos no FIM do valor novo (não na posição antiga).
 let _rerenderFocusToken = 0;
 async function rerenderKeepingFocus(renderFn){
   const active = document.activeElement;
@@ -188,6 +194,8 @@ async function rerenderKeepingFocus(renderFn){
   const hasSelection = active && typeof active.selectionStart === 'number';
   const selStart = hasSelection ? active.selectionStart : null;
   const selEnd = hasSelection ? active.selectionEnd : null;
+  const valorAntes = hasSelection ? (active.value != null ? active.value : '') : '';
+  const noFimAntes = hasSelection && selEnd === valorAntes.length;
   const meuToken = ++_rerenderFocusToken;
   await renderFn(); // renderFn pode ser síncrono ou assíncrono — await funciona nos dois casos
   if(meuToken !== _rerenderFocusToken) return; // uma chamada mais nova já assumiu o controle do foco
@@ -196,7 +204,13 @@ async function rerenderKeepingFocus(renderFn){
     if(restored){
       restored.focus();
       if(selStart!=null && restored.setSelectionRange){
-        try{ restored.setSelectionRange(selStart, selEnd); }catch(e){}
+        const valorNovo = restored.value != null ? restored.value : '';
+        // Se o valor mudou (usuário digitou mais durante o await) e o cursor
+        // estava no fim, a posição correta agora é o fim do valor novo —
+        // nunca a posição numérica antiga, que ficaria presa no meio do texto.
+        const pos = noFimAntes ? valorNovo.length : Math.min(selStart, valorNovo.length);
+        const posEnd = noFimAntes ? valorNovo.length : Math.min(selEnd, valorNovo.length);
+        try{ restored.setSelectionRange(pos, posEnd); }catch(e){}
       }
     }
   }
