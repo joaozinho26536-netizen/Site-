@@ -233,3 +233,27 @@ test('listaContasAReceber só lista parcelas com saldo pendente e marca vencidas
   assert.equal(linhas[0].vencida, true);
   assert.equal(linhas[0].cliente, 'Maria');
 });
+
+test('rerenderKeepingFocus: uma chamada antiga que resolve DEPOIS de uma mais nova não pode jogar o cursor pra trás (teste de regressão)', async () => {
+  // Reproduz digitar em rajadas numa busca com debounce: uma chamada "lenta"
+  // (ex.: busca de servidor mais demorada) começa primeiro, e antes dela
+  // terminar o usuário já digitou mais e disparou uma segunda chamada, mais
+  // rápida, que termina primeiro. Sem proteção, a chamada lenta reaplicaria,
+  // depois, a posição do cursor que capturou lá atrás — fazendo o cursor
+  // "pular pra trás" no meio do texto já digitado depois.
+  const campo = {
+    id: 'campo-teste', value: 'a', selectionStart: 1, selectionEnd: 1,
+    focus(){}, setSelectionRange(a,b){ this.selectionStart = a; this.selectionEnd = b; },
+  };
+  global.document = { activeElement: campo, getElementById: (id)=> id===campo.id ? campo : null };
+  try{
+    const chamadaLenta = RO.rerenderKeepingFocus(()=> new Promise(r=>setTimeout(r, 60)));
+    await new Promise(r=>setTimeout(r, 10));
+    campo.value = 'ab'; campo.selectionStart = 2; campo.selectionEnd = 2; // usuário digitou mais uma letra
+    const chamadaRapida = RO.rerenderKeepingFocus(()=> new Promise(r=>setTimeout(r, 5)));
+    await Promise.all([chamadaLenta, chamadaRapida]);
+    assert.equal(campo.selectionStart, 2, 'a chamada antiga não pode reaplicar a posição de cursor que capturou antes do usuário digitar mais');
+  }finally{
+    delete global.document;
+  }
+});
