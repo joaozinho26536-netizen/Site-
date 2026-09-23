@@ -162,6 +162,38 @@ test('pedidoTotais: pedido sem nenhuma parcela lançada não conta como quitado'
   assert.equal(t.quitado, false);
 });
 
+test('pedidoTotais: parcela paga a menos fica quitada se OUTRA PARCELA DO MESMO PRODUTO compensa a diferença', () => {
+  // Ex. real: produto de 12 parcelas de R$150 (total R$1.800). A parcela 6
+  // recebeu só R$100 (faltam R$50) e a parcela 11 recebeu R$300 (R$150 a
+  // mais) — o produto, como um todo, recebeu exatamente o que devia, só
+  // que distribuído de forma desigual entre as parcelas. O pedido deve
+  // aparecer quitado (mesmo a parcela 6 sozinha ainda "devendo" R$50).
+  const parcelas = [];
+  for(let i=1;i<=12;i++) parcelas.push({ n:i, recebimento: i===6?100:(i===11?300:150), desconto:0 });
+  const pedido = { valor_entrada:0, itens:[{ valor_venda:1800, uni:1, valor_parcela:150, parcelas }] };
+  const t = RO.pedidoTotais(pedido);
+  assert.equal(t.totalGeral, 1800);
+  assert.equal(t.saldoDevedor, 0);
+  assert.equal(t.quitado, true);
+});
+
+test('pedidoTotais: parcela em aberto de um produto NÃO é mascarada por outro produto pago com folga', () => {
+  // Produto A: 1 parcela de R$100 totalmente em aberto. Produto B: 1
+  // parcela de R$100 paga em dobro (R$200). A soma geral do pedido bate
+  // (R$200 recebidos = R$200 devidos), mas o produto A continua devendo —
+  // isso não pode "sumir" só porque outro produto pagou a mais.
+  const pedido = {
+    valor_entrada: 0,
+    itens: [
+      { valor_venda:100, uni:1, valor_parcela:100, parcelas:[{ recebimento:0, desconto:0 }] },
+      { valor_venda:100, uni:1, valor_parcela:100, parcelas:[{ recebimento:200, desconto:0 }] },
+    ],
+  };
+  const t = RO.pedidoTotais(pedido);
+  assert.equal(t.quitado, false, 'produto A continua com R$100 em aberto');
+  assert.equal(t.saldoDevedor, 100);
+});
+
 test('listaContasAReceber só lista parcelas com saldo pendente e marca vencidas', () => {
   const ontem = new Date(); ontem.setDate(ontem.getDate() - 40);
   const dataCompraVencida = ontem.toISOString().slice(0, 10); // vence ~10 dias atrás (1 mês depois)
