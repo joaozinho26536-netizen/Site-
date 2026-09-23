@@ -174,13 +174,23 @@ function wireSortHeaders(container, ui, numericKeys, rerenderFn){
     };
   });
 }
+// Quando renderFn depende de rede (busca no servidor, por exemplo), digitar
+// em rajadas — pausa, mais texto, pausa de novo — dispara uma chamada desta
+// função por pausa, e cada uma tem sua própria viagem de ida-e-volta até o
+// servidor. Sem controle, uma chamada mais ANTIGA que termine DEPOIS de uma
+// mais NOVA reaplicaria a posição do cursor capturada lá atrás — o cursor
+// "pula pra trás" no meio do texto que o usuário já digitou depois. O token
+// garante que só a chamada mais recente tem permissão de restaurar o foco.
+let _rerenderFocusToken = 0;
 async function rerenderKeepingFocus(renderFn){
   const active = document.activeElement;
   const id = active && active.id;
   const hasSelection = active && typeof active.selectionStart === 'number';
   const selStart = hasSelection ? active.selectionStart : null;
   const selEnd = hasSelection ? active.selectionEnd : null;
+  const meuToken = ++_rerenderFocusToken;
   await renderFn(); // renderFn pode ser síncrono ou assíncrono — await funciona nos dois casos
+  if(meuToken !== _rerenderFocusToken) return; // uma chamada mais nova já assumiu o controle do foco
   if(id){
     const restored = document.getElementById(id);
     if(restored){
