@@ -88,15 +88,33 @@ test('proximoPagamentoPedido acha a parcela não paga com vencimento mais próxi
   const pedido = {
     data_compra: '2026-01-10',
     itens: [{
+      valor_venda: 300, uni: 1, valor_parcela: 100,
       parcelas: [
-        { n: 1, data_pgto: '2026-02-10' }, // já paga, ignorada
-        { n: 3, data_pgto: null },
-        { n: 2, data_pgto: null },
+        { n: 1, data_pgto: '2026-02-10', recebimento: 100 }, // já paga, ignorada
+        { n: 3, data_pgto: null, recebimento: 0 },
+        { n: 2, data_pgto: null, recebimento: 0 },
       ],
     }],
   };
   const prox = RO.proximoPagamentoPedido(pedido);
   assert.equal(prox.toISOString().slice(0, 10), '2026-03-10', 'a parcela 2 (mar/2026) vence antes da 3 (abr/2026)');
+});
+
+test('proximoPagamentoPedido retorna null quando o pedido está quitado, mesmo com uma parcela sem data_pgto', () => {
+  // Mesmo cenário do pedidoTotais: a parcela 2 não tem data_pgto (nunca foi
+  // "registrada" oficialmente), mas o produto foi pago em outra parcela —
+  // não deve aparecer nenhum próximo pagamento pra esse pedido.
+  const pedido = {
+    data_compra: '2026-01-10',
+    itens: [{
+      valor_venda: 200, uni: 1, valor_parcela: 100,
+      parcelas: [
+        { n: 1, data_pgto: '2026-02-10', recebimento: 200 },
+        { n: 2, data_pgto: null, recebimento: 0 },
+      ],
+    }],
+  };
+  assert.equal(RO.proximoPagamentoPedido(pedido), null);
 });
 
 test('proximoPagamentoPedido respeita proximo_pagamento_override quando presente', () => {
@@ -108,7 +126,7 @@ test('proximoPagamentoPedido respeita proximo_pagamento_override quando presente
 });
 
 test('proximoPagamentoPedido retorna null quando tudo está pago', () => {
-  const pedido = { data_compra: '2026-01-10', itens: [{ parcelas: [{ n: 1, data_pgto: '2026-02-10' }] }] };
+  const pedido = { data_compra: '2026-01-10', itens: [{ valor_venda: 100, uni: 1, valor_parcela: 100, parcelas: [{ n: 1, data_pgto: '2026-02-10', recebimento: 100 }] }] };
   assert.equal(RO.proximoPagamentoPedido(pedido), null);
 });
 

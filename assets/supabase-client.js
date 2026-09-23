@@ -323,6 +323,12 @@ function proximoPagamentoPedido(pedido){
     const d = new Date(pedido.proximo_pagamento_override+'T00:00:00');
     if(!isNaN(d.getTime())) return d;
   }
+  // Pedido quitado (por produto, ver pedidoTotais) não tem próximo
+  // pagamento — mesmo que alguma parcela isolada não tenha data_pgto
+  // registrada, porque outra parcela do mesmo produto cobriu a diferença.
+  // Sem isso, a lista de pedidos mostrava uma data futura pra um pedido
+  // já quitado.
+  if(pedidoTotais(pedido).quitado) return null;
   let proximo = null;
   (pedido.itens||[]).forEach(it=>{
     (it.parcelas||[]).forEach(parc=>{

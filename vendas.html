@@ -717,12 +717,16 @@
       const hint = back.querySelector('#ef-proximo-hint');
       if(!btn) return;
       const prox = proximoPagamentoPedido(draft);
-      btn.innerHTML = ICONS.edit + ' ' + (prox ? fmtDate(prox) : 'Selecionar data');
+      const quitado = RO.pedidoTotais(draft).quitado;
+      btn.innerHTML = ICONS.edit + ' ' + (prox ? fmtDate(prox) : (quitado ? '—' : 'Selecionar data'));
       if(hint){
         if(draft.proximo_pagamento_override){
           hint.textContent = 'Definido manualmente — clique para voltar ao automático';
           hint.style.cursor = 'pointer';
           hint.onclick = ()=>{ draft.proximo_pagamento_override = null; atualizarProximoBtn(); };
+        }else if(!prox && quitado){
+          hint.textContent = 'Pedido quitado — sem próximo pagamento';
+          hint.style.cursor = ''; hint.onclick = null;
         }else{ hint.textContent = ''; hint.style.cursor = ''; hint.onclick = null; }
       }
     }
