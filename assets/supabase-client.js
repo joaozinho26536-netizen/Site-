@@ -343,16 +343,18 @@ function parcelaVencimentoEstimado(pedido, n){
   return d;
 }
 function proximoPagamentoPedido(pedido){
+  // Pedido quitado (por produto, ver pedidoTotais) nunca tem próximo
+  // pagamento — mesmo que exista um proximo_pagamento_override salvo de
+  // antes de a última parcela ser paga (data que ficou "presa" no banco) e
+  // mesmo que alguma parcela isolada não tenha data_pgto registrada, porque
+  // outra parcela do mesmo produto cobriu a diferença. Por isso este check
+  // vem ANTES do override: saldo zerado sempre vence qualquer data manual
+  // antiga.
+  if(pedidoTotais(pedido).quitado) return null;
   if(pedido && pedido.proximo_pagamento_override){
     const d = new Date(pedido.proximo_pagamento_override+'T00:00:00');
     if(!isNaN(d.getTime())) return d;
   }
-  // Pedido quitado (por produto, ver pedidoTotais) não tem próximo
-  // pagamento — mesmo que alguma parcela isolada não tenha data_pgto
-  // registrada, porque outra parcela do mesmo produto cobriu a diferença.
-  // Sem isso, a lista de pedidos mostrava uma data futura pra um pedido
-  // já quitado.
-  if(pedidoTotais(pedido).quitado) return null;
   let proximo = null;
   (pedido.itens||[]).forEach(it=>{
     (it.parcelas||[]).forEach(parc=>{

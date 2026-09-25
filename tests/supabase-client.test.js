@@ -117,12 +117,23 @@ test('proximoPagamentoPedido retorna null quando o pedido está quitado, mesmo c
   assert.equal(RO.proximoPagamentoPedido(pedido), null);
 });
 
-test('proximoPagamentoPedido respeita proximo_pagamento_override quando presente', () => {
+test('proximoPagamentoPedido respeita proximo_pagamento_override quando presente e o pedido ainda tem saldo devedor', () => {
   const pedido = {
     data_compra: '2026-01-10', proximo_pagamento_override: '2026-12-25',
-    itens: [{ parcelas: [{ n: 1, data_pgto: null }] }],
+    itens: [{ valor_venda: 100, uni: 1, valor_parcela: 100, parcelas: [{ n: 1, data_pgto: null, recebimento: 0 }] }],
   };
   assert.equal(RO.proximoPagamentoPedido(pedido).toISOString().slice(0, 10), '2026-12-25');
+});
+
+test('proximoPagamentoPedido IGNORA proximo_pagamento_override quando o pedido já está quitado (teste de regressão — pedido 408)', () => {
+  // Um override pode ter sido salvo antes da última parcela ser paga — uma
+  // vez que o saldo devedor zera, essa data antiga não pode "vencer" o fato
+  // de o pedido estar quitado.
+  const pedido = {
+    data_compra: '2026-01-10', proximo_pagamento_override: '2026-12-25',
+    itens: [{ valor_venda: 100, uni: 1, valor_parcela: 100, parcelas: [{ n: 1, data_pgto: '2026-02-10', recebimento: 100 }] }],
+  };
+  assert.equal(RO.proximoPagamentoPedido(pedido), null);
 });
 
 test('proximoPagamentoPedido retorna null quando tudo está pago', () => {
